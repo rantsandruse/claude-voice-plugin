@@ -52,11 +52,7 @@ def _should_summarize(text: str, config) -> bool:
         return True
     if len(text) > 5000:
         return True
-    try:
-        threshold = int(config.tts.summary_threshold)
-    except (TypeError, ValueError):
-        threshold = 500
-    if len(text) > threshold:
+    if len(text) > config.tts.summary_threshold:
         return True
     return False
 

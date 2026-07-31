@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from claude_voice.hook import main
+from claude_voice.config import Config
 
 
 def _run_with_stdin(payload: dict, mocker) -> int:
@@ -29,7 +30,7 @@ def test_sends_speak_message(tmp_path, mocker):
     send = mocker.patch(
         "claude_voice.hook.send_message", return_value={"ok": True}
     )
-    mocker.patch("claude_voice.hook.load_config")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
     mocker.patch(
         "claude_voice.hook.read_secrets",
         return_value={"ANTHROPIC_API_KEY": None},
@@ -51,7 +52,7 @@ def test_empty_cleaned_text_skips_send(tmp_path, mocker):
         '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"```py\\nx=1\\n```"}]}}\n'
     )
     send = mocker.patch("claude_voice.hook.send_message")
-    mocker.patch("claude_voice.hook.load_config")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
     mocker.patch(
         "claude_voice.hook.read_secrets",
         return_value={"ANTHROPIC_API_KEY": None},
@@ -72,7 +73,7 @@ def test_summarize_used_for_long_response(tmp_path, mocker):
                         "content": [{"type": "text", "text": long_text}]},
         }) + "\n"
     )
-    mocker.patch("claude_voice.hook.load_config")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
     mocker.patch(
         "claude_voice.hook.read_secrets",
         return_value={"ANTHROPIC_API_KEY": "k"},
@@ -98,7 +99,7 @@ def test_daemon_offline_writes_log(tmp_path, mocker):
     mocker.patch("claude_voice.hook.send_message", return_value=None)
     log_path = tmp_path / "hook.log"
     mocker.patch("claude_voice.hook.HOOK_LOG_PATH", log_path)
-    mocker.patch("claude_voice.hook.load_config")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
     mocker.patch(
         "claude_voice.hook.read_secrets",
         return_value={"ANTHROPIC_API_KEY": None},
