@@ -44,7 +44,7 @@ class ElevenLabsProvider:
         def _pump():
             try:
                 for chunk in resp.iter_bytes():
-                    if afplay.stdin is None:
+                    if afplay.stdin is None or afplay.poll() is not None:
                         break
                     try:
                         afplay.stdin.write(chunk)

@@ -12,9 +12,12 @@ def test_speak_pipes_stream_to_afplay(mocker):
         "https://api.elevenlabs.io/v1/text-to-speech/rachel/stream"
     ).mock(return_value=httpx.Response(200, content=b"MP3AUDIO"))
 
+    handle = mocker.MagicMock(spec=subprocess.Popen)
+    handle.stdin = mocker.MagicMock()
+    handle.poll.return_value = None
     popen_mock = mocker.patch(
         "claude_voice.tts.elevenlabs.subprocess.Popen",
-        return_value=mocker.MagicMock(spec=subprocess.Popen, stdin=mocker.MagicMock()),
+        return_value=handle,
     )
 
     p = ElevenLabsProvider(ElevenLabsConfig(voice_id="rachel"), api_key="k")
