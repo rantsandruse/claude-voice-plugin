@@ -4,7 +4,7 @@ import json
 import sys
 from datetime import datetime
 
-from .config import CONFIG_DIR, load_config, secrets as read_secrets
+from .config import CONFIG_DIR, load_config, load_dotenv_if_present, secrets as read_secrets
 from .transcript_reader import read_last_assistant
 from .text_cleaner import clean_for_tts
 from .ipc import send_message
@@ -75,6 +75,7 @@ def main() -> int:
     if not cleaned:
         return 0
 
+    load_dotenv_if_present()
     config = load_config()
     secrets = read_secrets()
 

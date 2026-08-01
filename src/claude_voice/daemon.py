@@ -7,7 +7,7 @@ import sys
 
 import rumps
 
-from .config import Config, CONFIG_DIR, load_config, secrets as read_secrets
+from .config import Config, CONFIG_DIR, load_config, load_dotenv_if_present, secrets as read_secrets
 from .hotkey import HotkeyListener, HotkeyEvent
 from .recorder import Recorder
 from .playback import PlaybackController
@@ -227,6 +227,7 @@ class VoiceDaemon(rumps.App):
 
 
 def run_daemon() -> None:
+    load_dotenv_if_present()
     config = load_config()
     secrets = read_secrets()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)

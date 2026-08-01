@@ -8,6 +8,22 @@ CONFIG_DIR = Path.home() / ".config" / "claude-voice"
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.yaml"
 
 
+def load_dotenv_if_present(path: Path | None = None) -> None:
+    """Load ``~/.config/claude-voice/.env`` into *os.environ* without overriding.
+
+    Silently does nothing when the file is absent or ``python-dotenv`` is not
+    installed.  Pass an explicit *path* to override the default location (useful
+    in tests).
+    """
+    dotenv_path = path if path is not None else CONFIG_DIR / ".env"
+    try:
+        from dotenv import load_dotenv  # type: ignore[import-untyped]
+    except ImportError:  # pragma: no cover
+        return
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path=dotenv_path, override=False)
+
+
 @dataclass(frozen=True)
 class HotkeyConfig:
     ptt: str = "alt_r"
