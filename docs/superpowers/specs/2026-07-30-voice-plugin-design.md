@@ -1,7 +1,6 @@
 # Voice Plugin for Claude Code — Design
 
 **Date:** 2026-07-30
-**Author:** tangsishi@gmail.com
 **Status:** Draft for implementation
 
 ## Goal
