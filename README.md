@@ -18,7 +18,7 @@ Runs as a lightweight menu-bar app on macOS. Works with an unmodified `claude` C
 
 ```bash
 git clone <this repo>
-cd voice_plugin
+cd claude-voice-plugin
 ./install.sh
 ```
 
