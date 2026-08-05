@@ -1,10 +1,52 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-.venv/
-venv/
-.env
 build/
 dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and credentials — never commit these
+.env
+.env.*
+!env.example
+*.key
+*.pem
+*.crt
+credentials.json
+credentials.yaml
+secrets.yaml
+secrets.json
+*.secret
+
+# Local config (user-specific; runs from ~/.config/claude-voice/)
+config.yaml
+!config.yaml.example
+
+# Runtime artifacts
 *.log
+*.sock
+/tmp/claude-voice/
+
+# SDD workspace (task briefs, reports, review diffs — scratch)
+.superpowers/
+
+# macOS
+.DS_Store
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# Coverage / test outputs
+.coverage
+htmlcov/
+coverage.xml
