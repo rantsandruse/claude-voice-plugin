@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Hello"},"uuid":"u1"}
+{"type":"assistant","message":{"id":"msg_01","role":"assistant","content":[{"type":"text","text":"Hi there!"}]},"uuid":"a1"}
+{"type":"user","message":{"role":"user","content":"How are you?"},"uuid":"u2"}
+{"type":"assistant","message":{"id":"msg_02","role":"assistant","content":[{"type":"text","text":"I'm well."},{"type":"text","text":"How are you?"}]},"uuid":"a2"}

@@ -1,0 +1,34 @@
+hotkey:
+  ptt: "alt_r"                # pynput key name
+  replay: "cmd+shift+r"       # optional; CLI still works without this
+
+stt:
+  provider: "whisper_local"   # whisper_local | deepgram
+  whisper_local:
+    model: "small"            # tiny | base | small | medium | large-v3
+    device: "auto"            # auto | cpu | cuda | mps
+    language: "en"
+  deepgram:
+    model: "nova-2"
+
+tts:
+  enabled: true
+  provider: "elevenlabs"      # elevenlabs | say
+  mode: "prose"               # prose | summary
+  summary_threshold: 500      # chars; above this always summarize
+  elevenlabs:
+    voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs uses opaque IDs, not names
+    model: "eleven_turbo_v2_5"
+  say:
+    voice: "Samantha"
+
+inject:
+  auto_submit: true           # press Enter after paste (submits Claude Code / any focused prompt)
+
+feedback:
+  sounds: true                # start/stop/error ticks
+  menu_bar: true
+
+logging:
+  level: "info"
+  path: "~/.config/claude-voice/daemon.log"
