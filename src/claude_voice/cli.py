@@ -31,6 +31,33 @@ def stop() -> None:
 
 
 @main.command()
+def restart() -> None:
+    """Stop the running daemon and start a new one in the background."""
+    import subprocess
+    from .ipc import SOCKET_PATH
+    reply = send_message({"op": "quit"})
+    if reply is not None:
+        click.echo("stopped")
+        # Wait for the socket to disappear so the new daemon doesn't race
+        # with the old one's atexit cleanup. Old daemon's atexit unlinks it;
+        # new daemon's startup also unlinks defensively, but polling avoids
+        # the flap.
+        for _ in range(20):
+            if not SOCKET_PATH.exists():
+                break
+            time.sleep(0.25)
+    else:
+        click.echo("daemon was not running")
+    subprocess.Popen(
+        ["claude-voice", "start"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    click.echo("restarted (running in background)")
+
+
+@main.command()
 def status() -> None:
     """Print daemon status as JSON."""
     reply = send_message({"op": "status"})
@@ -61,12 +88,13 @@ def test_mic() -> None:
     click.echo("recording 3s… speak now")
     rec.start()
     time.sleep(3.0)
-    wav = rec.stop()
-    if wav is None:
+    result = rec.stop()
+    if result is None:
         click.echo("no audio captured")
         return
-    click.echo(f"transcribing {wav}…")
-    click.echo(stt.transcribe(wav))
+    audio, sample_rate = result
+    click.echo(f"transcribing {len(audio) / sample_rate:.1f}s of audio…")
+    click.echo(stt.transcribe_audio(audio, sample_rate))
 
 
 @main.command("test-tts")

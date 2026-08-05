@@ -1,8 +1,13 @@
 from pathlib import Path
 from unittest.mock import MagicMock
+import numpy as np
 from claude_voice.config import Config
 from claude_voice.hotkey import HotkeyEvent
 from claude_voice.daemon import DaemonCore
+
+
+def _fake_audio(seconds: float = 1.0) -> tuple[np.ndarray, int]:
+    return (np.zeros(int(seconds * 16000), dtype=np.float32), 16000)
 
 
 def _mk_core():
@@ -36,11 +41,11 @@ def test_ptt_down_starts_recording_and_interrupts_tts():
 
 def test_ptt_up_transcribes_and_injects():
     core, recorder, _, stt, _, _, injector = _mk_core()
-    wav = Path("/tmp/x.wav")
-    recorder.stop.return_value = wav
-    stt.transcribe.return_value = "hello world"
+    audio = _fake_audio()
+    recorder.stop.return_value = audio
+    stt.transcribe_audio.return_value = "hello world"
     core.handle_hotkey(HotkeyEvent.PTT_UP)
-    stt.transcribe.assert_called_once_with(wav)
+    stt.transcribe_audio.assert_called_once()
     injector.assert_called_once_with("hello world")
 
 
@@ -48,14 +53,14 @@ def test_ptt_up_short_recording_no_inject():
     core, recorder, _, stt, _, _, injector = _mk_core()
     recorder.stop.return_value = None  # too short
     core.handle_hotkey(HotkeyEvent.PTT_UP)
-    stt.transcribe.assert_not_called()
+    stt.transcribe_audio.assert_not_called()
     injector.assert_not_called()
 
 
 def test_ptt_up_empty_transcript_no_inject():
     core, recorder, _, stt, _, _, injector = _mk_core()
-    recorder.stop.return_value = Path("/tmp/x.wav")
-    stt.transcribe.return_value = ""
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = ""
     core.handle_hotkey(HotkeyEvent.PTT_UP)
     injector.assert_not_called()
 
@@ -66,8 +71,8 @@ def test_ptt_up_while_busy_is_ignored():
     # Make STT block so the first PTT_UP stays "busy"
     from threading import Event
     proceed = Event()
-    stt.transcribe.side_effect = lambda w: (proceed.wait(0.5), "hi")[1]
-    recorder.stop.return_value = Path("/tmp/x.wav")
+    stt.transcribe_audio.side_effect = lambda a, sr: (proceed.wait(0.5), "hi")[1]
+    recorder.stop.return_value = _fake_audio()
 
     # Use an async dispatch so the first job is still in-flight
     import threading
@@ -81,7 +86,7 @@ def test_ptt_up_while_busy_is_ignored():
     proceed.set()
     # Only one transcribe call should have started
     import time; time.sleep(0.6)
-    assert stt.transcribe.call_count == 1
+    assert stt.transcribe_audio.call_count == 1
 
 
 def test_speak_handler_calls_playback():

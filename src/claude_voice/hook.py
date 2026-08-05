@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import subprocess
 import sys
 from datetime import datetime
 
@@ -10,6 +11,25 @@ from .text_cleaner import clean_for_tts
 from .ipc import send_message
 
 HOOK_LOG_PATH = CONFIG_DIR / "hook.log"
+
+# Audio ticks played on non-Stop events so you can hear that Claude Code is
+# processing without looking at the screen.
+# - Ping (bright, "acknowledged"): fires when Claude Code receives your prompt
+# - Purr (soft, "still working"): fires on each tool invocation
+TICK_USERPROMPTSUBMIT = "Ping"
+TICK_PRETOOLUSE = "Purr"
+
+
+def _play_tick(sound_name: str) -> None:
+    """Fire-and-forget system sound. Best-effort — failure is silent because
+    the tick is UX polish, not a functional requirement."""
+    try:
+        subprocess.Popen(
+            ["afplay", f"/System/Library/Sounds/{sound_name}.aiff"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
 
 
 def _log(msg: str) -> None:
@@ -63,6 +83,24 @@ def main() -> int:
     except Exception:
         return 0
 
+    event = payload.get("hook_event_name", "")
+    load_dotenv_if_present()
+    config = load_config()
+
+    # A′: Claude Code just received a prompt and is starting a turn. The last
+    # assistant message hasn't changed yet, so there's nothing to speak — just
+    # confirm audibly that the submit landed and Claude is thinking.
+    if event == "UserPromptSubmit":
+        if config.feedback.sounds:
+            _play_tick(TICK_USERPROMPTSUBMIT)
+        return 0
+
+    # B: A tool is about to run. Tick as a heartbeat, then fall through to
+    # the normal TTS path — the daemon's response_id dedup means we only
+    # speak new text blocks, never repeat prior ones.
+    if event == "PreToolUse" and config.feedback.sounds:
+        _play_tick(TICK_PRETOOLUSE)
+
     transcript_path = payload.get("transcript_path")
     if not transcript_path:
         return 0
@@ -75,8 +113,6 @@ def main() -> int:
     if not cleaned:
         return 0
 
-    load_dotenv_if_present()
-    config = load_config()
     secrets = read_secrets()
 
     text = cleaned

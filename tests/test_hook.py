@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from claude_voice.hook import main
-from claude_voice.config import Config
+from claude_voice.config import Config, FeedbackConfig
 
 
 def _run_with_stdin(payload: dict, mocker) -> int:
@@ -89,6 +89,47 @@ def test_summarize_used_for_long_response(tmp_path, mocker):
     )
     summarize.assert_called_once()
     assert send.call_args.args[0]["text"] == "short summary"
+
+
+def test_userpromptsubmit_plays_tick_and_skips_speak(mocker):
+    """A′: On UserPromptSubmit, tick and exit without touching TTS."""
+    tick = mocker.patch("claude_voice.hook._play_tick")
+    send = mocker.patch("claude_voice.hook.send_message")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    _run_with_stdin({"hook_event_name": "UserPromptSubmit"}, mocker)
+    tick.assert_called_once_with("Ping")
+    send.assert_not_called()
+
+
+def test_userpromptsubmit_respects_sounds_off(mocker):
+    tick = mocker.patch("claude_voice.hook._play_tick")
+    cfg = Config(feedback=FeedbackConfig(sounds=False))
+    mocker.patch("claude_voice.hook.load_config", return_value=cfg)
+    _run_with_stdin({"hook_event_name": "UserPromptSubmit"}, mocker)
+    tick.assert_not_called()
+
+
+def test_pretooluse_plays_tick_and_still_sends_speak(tmp_path, mocker):
+    """B: On PreToolUse, tick AND fall through to TTS (dedup handles repeats)."""
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Checking the docs."}]}}\n'
+    )
+    tick = mocker.patch("claude_voice.hook._play_tick")
+    send = mocker.patch(
+        "claude_voice.hook.send_message", return_value={"ok": True}
+    )
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch(
+        "claude_voice.hook.read_secrets",
+        return_value={"ANTHROPIC_API_KEY": None},
+    )
+    _run_with_stdin(
+        {"hook_event_name": "PreToolUse", "transcript_path": str(jsonl)}, mocker
+    )
+    tick.assert_called_once_with("Purr")
+    assert send.called
+    assert send.call_args.args[0]["op"] == "speak"
 
 
 def test_daemon_offline_writes_log(tmp_path, mocker):

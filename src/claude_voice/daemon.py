@@ -4,8 +4,10 @@ from typing import Callable
 import threading
 import subprocess
 import sys
+import time
 
 import rumps
+from PyObjCTools.AppHelper import callAfter
 
 from .config import Config, CONFIG_DIR, load_config, load_dotenv_if_present, secrets as read_secrets
 from .hotkey import HotkeyListener, HotkeyEvent
@@ -75,7 +77,16 @@ class DaemonCore:
         if event == HotkeyEvent.PTT_DOWN:
             if self._playback.is_playing():
                 self._playback.interrupt()
-            self._recorder.start()
+            # If Recorder.start() throws (PortAudio internal state gone stale,
+            # mic permission revoked, device disappeared), surface it to the
+            # user immediately instead of letting pynput swallow the traceback.
+            try:
+                self._recorder.start()
+            except Exception as e:
+                print(f"[daemon] recorder start failed: {e}", file=sys.stderr)
+                self._on_state_change("error")
+                self._play_tick("busy")
+                return
             self._on_state_change("recording")
             self._play_tick("start")
         elif event == HotkeyEvent.PTT_UP:
@@ -83,19 +94,26 @@ class DaemonCore:
                 if self._busy:
                     self._play_tick("busy")
                     return
-            wav = self._recorder.stop()
-            if wav is None:
+            try:
+                audio_data = self._recorder.stop()
+            except Exception as e:
+                print(f"[daemon] recorder stop failed: {e}", file=sys.stderr)
+                self._on_state_change("error")
+                self._play_tick("busy")
+                return
+            if audio_data is None:
                 self._on_state_change("idle")
                 return
             with self._lock:
                 self._busy = True
             self._on_state_change("transcribing")
-            self._dispatch(self.run_transcribe_job, (wav,))
+            self._dispatch(self.run_transcribe_job, (audio_data,))
 
-    def run_transcribe_job(self, wav: Path) -> None:
+    def run_transcribe_job(self, audio_data: tuple) -> None:
+        audio, sample_rate = audio_data
         try:
             try:
-                text = self._stt.transcribe(wav)
+                text = self._stt.transcribe_audio(audio, sample_rate)
             except Exception as e:
                 print(f"[daemon] STT error: {e}", file=sys.stderr)
                 self._on_state_change("error")
@@ -181,6 +199,16 @@ class VoiceDaemon(rumps.App):
         self._config = config
 
         stt = _make_stt(config, secrets)
+        # Preload weights so the first PTT press doesn't eat the cold-load
+        # penalty. No-op for Deepgram. Failure isn't fatal — fall back to
+        # lazy-load on first press.
+        warmup = getattr(stt, "warmup", None)
+        if callable(warmup):
+            print("[daemon] preloading STT model…", file=sys.stderr)
+            try:
+                warmup()
+            except Exception as e:
+                print(f"[daemon] STT warmup failed: {e}", file=sys.stderr)
         primary_tts = _make_tts_primary(config, secrets)
         fallback_tts = SayProvider(config.tts.say)
         playback = PlaybackController(primary_tts, fallback=fallback_tts)
@@ -221,7 +249,12 @@ class VoiceDaemon(rumps.App):
         self._core.handle_hotkey(event)
 
     def _on_state_change(self, state: str) -> None:
-        self.title = _STATE_ICONS.get(state, "🎙️")
+        # Assigning self.title reaches into NSStatusItem/Core Animation, which
+        # is main-thread-only. This method is invoked from the IPC thread and
+        # from the transcribe worker; setting the title directly from those
+        # threads segfaults on pthread teardown (QuartzCore CA::Transaction).
+        icon = _STATE_ICONS.get(state, "🎙️")
+        callAfter(lambda: setattr(self, "title", icon))
 
     def _menu_replay(self, _sender) -> None:
         self._core.handle_replay({})
@@ -234,26 +267,49 @@ class VoiceDaemon(rumps.App):
         super().run()
 
 
+def _purge_old_wavs(directory: Path = Path("/tmp/claude-voice"), older_than_hours: float = 24) -> None:
+    """Sweep stale PTT recordings left by prior daemon crashes. macOS reaps
+    /tmp on a 3-day schedule; we tighten that to a day for a smaller privacy
+    window on unencrypted speech audio."""
+    if not directory.exists():
+        return
+    cutoff = time.time() - older_than_hours * 3600
+    for wav in directory.glob("*.wav"):
+        try:
+            if wav.stat().st_mtime < cutoff:
+                wav.unlink()
+        except OSError:
+            pass
+
+
 def run_daemon() -> None:
     load_dotenv_if_present()
     config = load_config()
     secrets = read_secrets()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    _purge_old_wavs()
+
+    # Clean stale socket from a previously-crashed daemon so this start
+    # succeeds cleanly. IPCServer.start() also does this, but doing it
+    # early gives a clearer failure signal if permissions are wrong.
+    try:
+        if SOCKET_PATH.exists():
+            SOCKET_PATH.unlink()
+    except OSError:
+        pass
+
     daemon = VoiceDaemon(config, secrets)
 
-    # Ensure clean shutdown on Ctrl+C / SIGTERM:
-    # - unlinks the daemon.sock file (otherwise blocks next start)
-    # - stops the pynput listener (silences leaked-semaphore warnings)
-    # - lets rumps quit its main loop gracefully
-    import signal
+    # Best-effort cleanup at interpreter shutdown. Runs AFTER rumps'
+    # event loop returns, so it doesn't race with AppKit like a
+    # signal-handler-driven quit would.
+    import atexit
 
-    def _shutdown(*_):
+    def _cleanup():
         try:
             daemon._core.stop()
         except Exception:
             pass
-        rumps.quit_application()
 
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
+    atexit.register(_cleanup)
     daemon.run()
