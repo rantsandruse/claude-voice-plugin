@@ -17,10 +17,13 @@ tts:
   mode: "prose"               # prose | summary
   summary_threshold: 500      # chars; above this always summarize
   elevenlabs:
-    voice_id: "rachel"
+    voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs uses opaque IDs, not names
     model: "eleven_turbo_v2_5"
   say:
     voice: "Samantha"
+
+inject:
+  auto_submit: true           # press Enter after paste (submits Claude Code / any focused prompt)
 
 feedback:
   sounds: true                # start/stop/error ticks

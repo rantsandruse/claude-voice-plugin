@@ -169,6 +169,14 @@ _STATE_ICONS = {
 
 class VoiceDaemon(rumps.App):
     def __init__(self, config: Config, secrets: dict[str, str | None]):
+        # Force menu-bar accessory mode BEFORE rumps registers its status item,
+        # so the icon persists reliably when run from a plain venv Python
+        # (no .app bundle, no Dock entry).
+        try:
+            from AppKit import NSApplication
+            NSApplication.sharedApplication().setActivationPolicy_(1)
+        except Exception:
+            pass
         super().__init__("Claude Voice", title="🎙️")
         self._config = config
 
@@ -190,7 +198,7 @@ class VoiceDaemon(rumps.App):
             stt=stt,
             playback=playback,
             ipc=ipc,
-            inject_fn=inject,
+            inject_fn=lambda text: inject(text, auto_submit=config.inject.auto_submit),
             on_state_change=self._on_state_change,
         )
         handlers["speak"] = self._core.handle_speak
@@ -231,4 +239,21 @@ def run_daemon() -> None:
     config = load_config()
     secrets = read_secrets()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    VoiceDaemon(config, secrets).run()
+    daemon = VoiceDaemon(config, secrets)
+
+    # Ensure clean shutdown on Ctrl+C / SIGTERM:
+    # - unlinks the daemon.sock file (otherwise blocks next start)
+    # - stops the pynput listener (silences leaked-semaphore warnings)
+    # - lets rumps quit its main loop gracefully
+    import signal
+
+    def _shutdown(*_):
+        try:
+            daemon._core.stop()
+        except Exception:
+            pass
+        rumps.quit_application()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+    daemon.run()

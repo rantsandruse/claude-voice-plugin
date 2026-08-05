@@ -17,30 +17,50 @@ class Recorder:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._buffer: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
+        self._callback_ref = None  # keep a strong ref to prevent GC on audio thread
         self._active = False
 
-    def _callback(self, indata, frames, time_info, status):
-        if self._active:
-            self._buffer.append(indata.copy())
+    def _make_callback(self):
+        """Build a plain closure over the buffer, avoiding bound-method
+        indirection that has caused segfaults on macOS 14+ in the portaudio
+        Core Audio callback thread."""
+        buffer = self._buffer  # bind by closure, not attribute lookup
+        active_check = lambda: self._active
+
+        def _cb(indata, frames, time_info, status):
+            if active_check():
+                buffer.append(indata.copy())
+
+        return _cb
 
     def start(self) -> None:
         self._buffer = []
         self._active = True
+        self._callback_ref = self._make_callback()
         self._stream = sd.InputStream(
             samplerate=self._sample_rate,
             channels=1,
             dtype="int16",
-            callback=self._callback,
+            callback=self._callback_ref,
         )
         self._stream.start()
 
     def stop(self) -> Path | None:
         if not self._active or self._stream is None:
             return None
+        # Mark inactive first so any in-flight callback becomes a no-op
         self._active = False
-        self._stream.stop()
-        self._stream.close()
+        # Give portaudio's audio thread a moment to see the flag and exit its
+        # callback cleanly before we tear down the stream. Prevents cffi
+        # marshaling a call into freed Python state on macOS 14+.
+        time.sleep(0.05)
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:
+            pass
         self._stream = None
+        self._callback_ref = None
         if not self._buffer:
             return None
         audio = np.concatenate(self._buffer, axis=0)

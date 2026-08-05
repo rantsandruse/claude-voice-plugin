@@ -55,3 +55,44 @@ def test_inject_handles_pbpaste_failure(mocker):
     ops = [c.args[0] for c in run.call_args_list]
     # still does pbcopy + osascript, just no restore
     assert ["pbcopy"] in ops
+
+
+def test_inject_auto_submit_sends_return(mocker):
+    mocker.patch(
+        "claude_voice.inject.subprocess.check_output",
+        return_value=b"prev clipboard",
+    )
+    run = mocker.patch("claude_voice.inject.subprocess.run")
+    mocker.patch("claude_voice.inject.time.sleep")
+
+    inject("hello", auto_submit=True)
+
+    # Find the osascript calls in order
+    osascript_scripts = [
+        " ".join(c.args[0])
+        for c in run.call_args_list
+        if c.args[0] and c.args[0][0] == "osascript"
+    ]
+    assert len(osascript_scripts) == 2
+    assert 'keystroke "v"' in osascript_scripts[0]
+    assert "keystroke return" in osascript_scripts[1]
+
+
+def test_inject_default_does_not_submit(mocker):
+    """Default behavior (auto_submit=False) must NOT send Return."""
+    mocker.patch(
+        "claude_voice.inject.subprocess.check_output",
+        return_value=b"prev",
+    )
+    run = mocker.patch("claude_voice.inject.subprocess.run")
+    mocker.patch("claude_voice.inject.time.sleep")
+
+    inject("hello")  # no auto_submit arg → False by default
+
+    osascript_scripts = [
+        " ".join(c.args[0])
+        for c in run.call_args_list
+        if c.args[0] and c.args[0][0] == "osascript"
+    ]
+    assert len(osascript_scripts) == 1
+    assert "keystroke return" not in osascript_scripts[0]

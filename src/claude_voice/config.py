@@ -51,7 +51,7 @@ class STTConfig:
 
 @dataclass(frozen=True)
 class ElevenLabsConfig:
-    voice_id: str = "rachel"
+    voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs uses opaque IDs
     model: str = "eleven_turbo_v2_5"
 
 
@@ -71,6 +71,11 @@ class TTSConfig:
 
 
 @dataclass(frozen=True)
+class InjectConfig:
+    auto_submit: bool = True   # press Enter after pasting the transcript
+
+
+@dataclass(frozen=True)
 class FeedbackConfig:
     sounds: bool = True
     menu_bar: bool = True
@@ -87,6 +92,7 @@ class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
+    inject: InjectConfig = field(default_factory=InjectConfig)
     feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
