@@ -50,3 +50,8 @@ config.yaml
 .coverage
 htmlcov/
 coverage.xml
+
+# Personal notes (local scratch, never pushed)
+TODO.txt
+NOTES.txt
+SCRATCH.md
