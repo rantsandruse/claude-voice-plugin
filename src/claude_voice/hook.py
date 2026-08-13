@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
 from .transcript_reader import read_last_assistant, read_new_assistant_since_last_user
@@ -36,7 +36,7 @@ def _log(msg: str) -> None:
     try:
         HOOK_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(HOOK_LOG_PATH, "a") as fp:
-            fp.write(f"{datetime.utcnow().isoformat()} {msg}\n")
+            fp.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
     except Exception:
         pass
 
