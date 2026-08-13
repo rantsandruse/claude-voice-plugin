@@ -91,6 +91,12 @@ class DaemonCore:
         # response_id so a same-id message whose text has grown (streaming
         # append, resummary drift) still gets spoken instead of deduped away.
         self._last_spoken_text_key: str | None = None
+        # Monotonic turn counter, incremented on each successful PTT_UP.
+        # The hook snapshots this before its blocking work (Haiku summarize).
+        # A speak that arrives stamped with an older generation means the
+        # user has already moved to a new turn while the hook was in flight;
+        # we drop it rather than speak the prior turn's response late.
+        self._current_generation: int = 0
         self._busy = False
         self._lock = threading.Lock()
 
@@ -135,6 +141,11 @@ class DaemonCore:
                 self._on_state_change("idle")
                 return
             with self._lock:
+                # Bump the turn generation as soon as we have real audio for a
+                # new user turn. Any in-flight hook from the previous turn will
+                # have snapshotted the older generation; its late speak will be
+                # dropped by handle_speak.
+                self._current_generation += 1
                 self._busy = True
             self._on_state_change("transcribing")
             self._dispatch(self.run_transcribe_job, (audio_data,))
@@ -187,15 +198,33 @@ class DaemonCore:
             pass
 
     # IPC handlers
+    def handle_generation(self, _msg: dict) -> dict:
+        """Return the current turn generation. Hooks call this at start so
+        their subsequent speak can be tagged with the generation they belong
+        to — letting the daemon drop late-arriving speaks from prior turns."""
+        with self._lock:
+            return {"ok": True, "generation": self._current_generation}
+
     def handle_speak(self, msg: dict) -> dict:
         if not self._config.tts.enabled:
             return {"ok": True, "skipped": "tts disabled"}
         text = msg.get("text", "")
         response_id = msg.get("response_id", "")
+        speak_generation = msg.get("generation")
         if not text:
             return {"ok": True, "skipped": "empty"}
         text_key = _text_key(text)
         with self._lock:
+            # Stale-turn drop: hook snapshotted the generation before doing
+            # blocking work (summarize / IPC). If the user has since pressed
+            # PTT to start a new turn, self._current_generation has advanced.
+            # Speaking now would land turn N-1's audio after the user has
+            # moved to turn N — the "backlogged by one" symptom.
+            if (
+                isinstance(speak_generation, int)
+                and speak_generation < self._current_generation
+            ):
+                return {"ok": True, "skipped": "stale generation"}
             # Dedup on the (id, text) pair: same id + same text = already
             # spoken. If the text changed for the same id (e.g. Stop reads
             # a longer version, or resummarization produces a new string),
@@ -292,6 +321,7 @@ class VoiceDaemon(rumps.App):
         handlers["replay"] = self._core.handle_replay
         handlers["status"] = self._core.handle_status
         handlers["interrupt"] = self._core.handle_interrupt
+        handlers["generation"] = self._core.handle_generation
 
         def _quit_handler(_m: dict) -> dict:
             rumps.quit_application()

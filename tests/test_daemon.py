@@ -123,6 +123,76 @@ def test_speak_handler_dedupes_same_id_same_text():
     assert playback.speak.call_count == 1
 
 
+def test_generation_starts_at_zero():
+    core, _, _, _, _, _, _ = _mk_core()
+    assert core.handle_generation({})["generation"] == 0
+
+
+def test_generation_increments_on_successful_ptt_up():
+    """A completed PTT (audio captured) is the signal that the user has
+    started a new turn — that's when generation must advance."""
+    core, recorder, _, stt, _, _, _ = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "hello"
+    assert core.handle_generation({})["generation"] == 0
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert core.handle_generation({})["generation"] == 1
+    # Second successful PTT: gen == 2.
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert core.handle_generation({})["generation"] == 2
+
+
+def test_generation_does_not_increment_when_recording_too_short():
+    """Zero-audio PTT is not a real turn — no generation bump."""
+    core, recorder, _, _, _, _, _ = _mk_core()
+    recorder.stop.return_value = None
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert core.handle_generation({})["generation"] == 0
+
+
+def test_speak_dropped_when_generation_is_stale():
+    """The core scenario the fix addresses: hook snapshotted generation N,
+    user PTT'd during hook's summarize, daemon advanced to N+1. When the
+    late speak arrives, it must not play."""
+    core, recorder, _, stt, playback, _, _ = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "next turn"
+    # Simulate a hook that snapshotted generation=0 at the start.
+    snapshot = core.handle_generation({})["generation"]
+    # User PTT for a new turn while the hook is still summarizing — daemon
+    # generation advances to 1.
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    # The stale hook finally sends its speak.
+    reply = core.handle_speak({
+        "op": "speak",
+        "text": "prior turn's answer",
+        "response_id": "old",
+        "generation": snapshot,
+    })
+    assert reply["skipped"] == "stale generation"
+    playback.speak.assert_not_called()
+
+
+def test_speak_plays_when_generation_matches_current():
+    core, _, _, _, playback, _, _ = _mk_core()
+    reply = core.handle_speak({
+        "op": "speak",
+        "text": "hi",
+        "response_id": "r1",
+        "generation": 0,
+    })
+    assert reply["ok"] is True
+    playback.speak.assert_called_once_with("hi", "r1")
+
+
+def test_speak_plays_when_generation_omitted_backcompat():
+    """A hook that predates the generation protocol still works — no drop."""
+    core, _, _, _, playback, _, _ = _mk_core()
+    reply = core.handle_speak({"op": "speak", "text": "hi", "response_id": "r1"})
+    assert reply["ok"] is True
+    playback.speak.assert_called_once_with("hi", "r1")
+
+
 def test_replay_handler_calls_playback():
     core, _, _, _, playback, _, _ = _mk_core()
     playback.replay_last.return_value = True

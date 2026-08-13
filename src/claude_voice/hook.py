@@ -141,6 +141,15 @@ def main() -> int:
     if not cleaned:
         return 0
 
+    # Snapshot the daemon's turn generation BEFORE doing anything blocking
+    # (Haiku summarize, secrets read). We stamp the speak with this number
+    # so the daemon can drop us if the user has moved to a new turn during
+    # our processing — see DaemonCore.handle_speak. Failing to query
+    # (daemon offline) just means we omit the stamp and the daemon plays
+    # unconditionally, matching the old behavior.
+    gen_reply = send_message({"op": "generation"})
+    generation = gen_reply.get("generation") if isinstance(gen_reply, dict) else None
+
     secrets = read_secrets()
 
     text = cleaned
@@ -153,11 +162,14 @@ def main() -> int:
         if api_key:
             text = summarize(cleaned, api_key)
 
-    reply = send_message({
+    speak_msg = {
         "op": "speak",
         "text": text,
         "response_id": msg.id,
-    })
+    }
+    if isinstance(generation, int):
+        speak_msg["generation"] = generation
+    reply = send_message(speak_msg)
     if reply is None:
         _log(f"daemon offline; skipped speaking msg_id={msg.id}")
     return 0

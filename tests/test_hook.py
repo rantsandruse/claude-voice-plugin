@@ -265,6 +265,58 @@ def test_over_5000_chars_forces_summarize_even_below_floor_conflict(tmp_path, mo
     summarize_mock.assert_called_once()
 
 
+def test_hook_stamps_speak_with_daemon_generation(tmp_path, mocker):
+    """Hook queries the daemon for its current turn generation BEFORE
+    summarize/blocking work, then stamps that generation on the speak. Lets
+    the daemon drop this speak if the user has since started a new turn."""
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"assistant","message":{"id":"m1","role":"assistant",'
+        '"content":[{"type":"text","text":"hi"}]}}\n'
+    )
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch(
+        "claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": None}
+    )
+    # First IPC is the generation query; second is the speak.
+    send = mocker.patch(
+        "claude_voice.hook.send_message",
+        side_effect=[{"ok": True, "generation": 7}, {"ok": True}],
+    )
+    _run_with_stdin(
+        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+    )
+    assert send.call_count == 2
+    assert send.call_args_list[0].args[0]["op"] == "generation"
+    speak_msg = send.call_args_list[1].args[0]
+    assert speak_msg["op"] == "speak"
+    assert speak_msg["generation"] == 7
+
+
+def test_hook_omits_generation_when_daemon_query_fails(tmp_path, mocker):
+    """Daemon offline / old-version daemon: hook falls back to unstamped speak
+    rather than blocking or crashing."""
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"assistant","message":{"id":"m1","role":"assistant",'
+        '"content":[{"type":"text","text":"hi"}]}}\n'
+    )
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch(
+        "claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": None}
+    )
+    send = mocker.patch(
+        "claude_voice.hook.send_message",
+        side_effect=[None, {"ok": True}],
+    )
+    _run_with_stdin(
+        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+    )
+    speak_msg = send.call_args_list[1].args[0]
+    assert speak_msg["op"] == "speak"
+    assert "generation" not in speak_msg
+
+
 def test_daemon_offline_writes_log(tmp_path, mocker):
     jsonl = tmp_path / "t.jsonl"
     jsonl.write_text(
