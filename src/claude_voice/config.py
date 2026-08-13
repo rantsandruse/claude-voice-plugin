@@ -6,6 +6,10 @@ import yaml
 
 CONFIG_DIR = Path.home() / ".config" / "claude-voice"
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.yaml"
+# One-shot flag file: presence tells the Stop hook to skip summarization
+# for the next response, then delete the file. Written by the daemon when
+# it recognizes the spoken "verbatim" command.
+VERBATIM_FLAG_PATH = CONFIG_DIR / "next-verbatim.flag"
 
 
 def load_dotenv_if_present(path: Path | None = None) -> None:
@@ -64,8 +68,22 @@ class SayConfig:
 class TTSConfig:
     enabled: bool = True
     provider: str = "elevenlabs"
-    mode: str = "prose"
+    # "summary" (default): Haiku condenses every response before speaking.
+    # "prose": speak verbatim (still auto-summarizes above summary_threshold).
+    # The daemon can flip to a one-shot verbatim override when the user
+    # speaks the "verbatim" command — see VERBATIM_FLAG_PATH.
+    mode: str = "summary"
     summary_threshold: int = 500
+    # Floor: short responses skip the Haiku round-trip entirely and are
+    # spoken verbatim, even in summary mode. Prevents paraphrase mismatch
+    # ("you asked for a one-sentence answer but heard rewritten words") and
+    # cuts ~500 ms of latency on short responses.
+    min_summarize_chars: int = 200
+    # Hard cap: kill any TTS subprocess (say/afplay) still running after
+    # this many seconds. Prevents wedged audio from blocking future PTT
+    # presses. Legitimate summaries are 5-10s; raise if you want long
+    # verbatim responses to play in full.
+    max_duration: int = 60
     elevenlabs: ElevenLabsConfig = field(default_factory=ElevenLabsConfig)
     say: SayConfig = field(default_factory=SayConfig)
 

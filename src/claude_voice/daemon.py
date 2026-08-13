@@ -9,7 +9,7 @@ import time
 import rumps
 from PyObjCTools.AppHelper import callAfter
 
-from .config import Config, CONFIG_DIR, load_config, load_dotenv_if_present, secrets as read_secrets
+from .config import Config, CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
 from .hotkey import HotkeyListener, HotkeyEvent
 from .recorder import Recorder
 from .playback import PlaybackController
@@ -35,6 +35,24 @@ def _make_tts_primary(config: Config, secrets: dict[str, str | None]):
 
 def _default_dispatch(fn: Callable, args: tuple) -> None:
     threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+def _is_verbatim_command(text: str) -> bool:
+    """Standalone-word match: 'verbatim', case-insensitive, allowing common
+    Whisper punctuation drift ('Verbatim.', 'verbatim,'). Only fires when the
+    entire utterance is the command — 'please summarize verbatim' pastes
+    normally."""
+    token = text.strip().lower().rstrip(".,!?")
+    return token == "verbatim"
+
+
+def _set_verbatim_flag() -> None:
+    """Touch the one-shot flag file the Stop hook reads."""
+    try:
+        VERBATIM_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        VERBATIM_FLAG_PATH.touch()
+    except OSError:
+        pass
 
 
 class DaemonCore:
@@ -121,6 +139,14 @@ class DaemonCore:
             if not text:
                 self._on_state_change("idle")
                 return
+            # Hands-free command intercept: if the user spoke just "verbatim",
+            # don't paste it — set the one-shot flag so the next Stop-hook
+            # response skips summarization, then bail out early.
+            if _is_verbatim_command(text):
+                _set_verbatim_flag()
+                self._play_tick("verbatim")
+                self._on_state_change("idle")
+                return
             self._inject(text)
             self._play_tick("stop")
             self._on_state_change("idle")
@@ -131,8 +157,15 @@ class DaemonCore:
     def _play_tick(self, kind: str) -> None:
         if not self._config.feedback.sounds:
             return
-        # macOS built-in system sounds
-        sound = {"start": "Tink", "stop": "Pop", "busy": "Funk"}.get(kind, "Tink")
+        # macOS built-in system sounds. "verbatim" gets Glass — a bright
+        # distinctive confirmation so the one-shot voice command is
+        # audibly different from the routine start/stop ticks.
+        sound = {
+            "start": "Tink",
+            "stop": "Pop",
+            "busy": "Funk",
+            "verbatim": "Glass",
+        }.get(kind, "Tink")
         try:
             subprocess.Popen(
                 ["afplay", f"/System/Library/Sounds/{sound}.aiff"],
@@ -211,7 +244,11 @@ class VoiceDaemon(rumps.App):
                 print(f"[daemon] STT warmup failed: {e}", file=sys.stderr)
         primary_tts = _make_tts_primary(config, secrets)
         fallback_tts = SayProvider(config.tts.say)
-        playback = PlaybackController(primary_tts, fallback=fallback_tts)
+        playback = PlaybackController(
+            primary_tts,
+            fallback=fallback_tts,
+            max_duration_seconds=float(config.tts.max_duration),
+        )
         recorder = Recorder()
         hotkey_listener = HotkeyListener(config.hotkey, on_event=self._on_hotkey)
 

@@ -5,8 +5,8 @@ import subprocess
 import sys
 from datetime import datetime
 
-from .config import CONFIG_DIR, load_config, load_dotenv_if_present, secrets as read_secrets
-from .transcript_reader import read_last_assistant
+from .config import CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
+from .transcript_reader import read_last_assistant, read_new_assistant_since_last_user
 from .text_cleaner import clean_for_tts
 from .ipc import send_message
 
@@ -68,11 +68,30 @@ def summarize(text: str, api_key: str) -> str:
 
 
 def _should_summarize(text: str, config) -> bool:
-    if config.tts.mode == "summary":
-        return True
+    # Wall-of-text hard cap — nothing this long should ever be spoken
+    # verbatim; forced summarize regardless of everything else.
     if len(text) > 5000:
         return True
+    # Floor: short responses read faster verbatim than they take to
+    # summarize. Skips Haiku round-trip and paraphrase mismatch — you
+    # hear the exact words the assistant wrote.
+    if len(text) < config.tts.min_summarize_chars:
+        return False
+    if config.tts.mode == "summary":
+        return True
     if len(text) > config.tts.summary_threshold:
+        return True
+    return False
+
+
+def _consume_verbatim_flag() -> bool:
+    """One-shot: if the flag file exists, delete it and return True. Used to
+    override summarize-by-default for the very next response."""
+    if VERBATIM_FLAG_PATH.exists():
+        try:
+            VERBATIM_FLAG_PATH.unlink()
+        except OSError:
+            pass  # even a failed unlink shouldn't stop the verbatim behavior
         return True
     return False
 
@@ -105,7 +124,16 @@ def main() -> int:
     if not transcript_path:
         return 0
 
-    msg = read_last_assistant(Path(transcript_path))
+    # PreToolUse fires before Claude has necessarily emitted any new text in
+    # this turn. If we used read_last_assistant here, we'd pick up the prior
+    # turn's final response and speak it again — the exact "summary of an
+    # old response while Claude is still thinking" bug. Use the turn-scoped
+    # reader instead, which returns None if the transcript's tail is
+    # user-then-nothing.
+    if event == "PreToolUse":
+        msg = read_new_assistant_since_last_user(Path(transcript_path))
+    else:
+        msg = read_last_assistant(Path(transcript_path))
     if msg is None:
         return 0
 
@@ -116,7 +144,11 @@ def main() -> int:
     secrets = read_secrets()
 
     text = cleaned
-    if _should_summarize(cleaned, config):
+    # One-shot override wins over config: user asked for verbatim, they get
+    # verbatim regardless of mode or thresholds.
+    if _consume_verbatim_flag():
+        pass
+    elif _should_summarize(cleaned, config):
         api_key = secrets.get("ANTHROPIC_API_KEY")
         if api_key:
             text = summarize(cleaned, api_key)

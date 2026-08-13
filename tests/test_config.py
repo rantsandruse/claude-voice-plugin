@@ -11,7 +11,7 @@ def test_load_config_missing_file_returns_defaults(tmp_path):
     assert cfg.stt.whisper_local.model == "small"
     assert cfg.tts.enabled is True
     assert cfg.tts.provider == "elevenlabs"
-    assert cfg.tts.mode == "prose"
+    assert cfg.tts.mode == "summary"
     assert cfg.tts.summary_threshold == 500
     assert cfg.feedback.sounds is True
     assert cfg.feedback.menu_bar is True

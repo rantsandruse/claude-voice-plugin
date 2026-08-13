@@ -77,6 +77,17 @@ def replay() -> None:
     click.echo("ok" if reply.get("ok") else "nothing to replay")
 
 
+@main.command()
+def interrupt() -> None:
+    """Force-stop any in-flight TTS. Fallback if a wedged say/afplay is
+    blocking future PTT presses and the auto-timeout hasn't fired yet."""
+    reply = send_message({"op": "interrupt"})
+    if reply is None:
+        click.echo("daemon not running")
+        return
+    click.echo("interrupted")
+
+
 @main.command("test-mic")
 def test_mic() -> None:
     """Record 3 seconds and print the transcript."""

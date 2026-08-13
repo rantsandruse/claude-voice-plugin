@@ -109,3 +109,49 @@ def test_replay_handler_calls_playback():
     reply = core.handle_replay({"op": "replay"})
     assert reply["ok"] is True
     playback.replay_last.assert_called_once()
+
+
+def test_verbatim_command_sets_flag_and_skips_inject(tmp_path, mocker):
+    """When the user speaks only 'verbatim', the daemon touches the one-shot
+    flag file and does NOT paste the word into the terminal."""
+    flag_path = tmp_path / "next-verbatim.flag"
+    mocker.patch("claude_voice.daemon.VERBATIM_FLAG_PATH", flag_path)
+
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "verbatim"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    assert flag_path.exists()
+
+
+def test_verbatim_case_insensitive_and_punctuation_tolerant(tmp_path, mocker):
+    """Whisper often returns 'Verbatim.' with a trailing period; still counts."""
+    flag_path = tmp_path / "next-verbatim.flag"
+    mocker.patch("claude_voice.daemon.VERBATIM_FLAG_PATH", flag_path)
+
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "Verbatim."
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    assert flag_path.exists()
+
+
+def test_verbatim_only_matches_standalone_word(tmp_path, mocker):
+    """'please summarize verbatim' should paste, not toggle the flag."""
+    flag_path = tmp_path / "next-verbatim.flag"
+    mocker.patch("claude_voice.daemon.VERBATIM_FLAG_PATH", flag_path)
+
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "please summarize verbatim"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_called_once_with("please summarize verbatim")
+    assert not flag_path.exists()

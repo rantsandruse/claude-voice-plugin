@@ -68,3 +68,55 @@ def test_falls_back_on_provider_error():
     p = PlaybackController(provider, fallback=fallback)
     assert p.speak("hi", "id1") is True
     fallback.speak.assert_called_once_with("hi")
+
+
+def test_watchdog_terminates_stuck_subprocess():
+    """Layer 1: if a TTS subprocess is still alive at max_duration, kill it."""
+    import time
+    handle = MagicMock(spec=subprocess.Popen)
+    handle.poll.return_value = None  # still alive when watchdog checks
+    provider = _mock_provider(handle)
+    p = PlaybackController(provider, max_duration_seconds=0.05)
+    p.speak("x", "id1")
+    time.sleep(0.15)  # let the timer fire
+    handle.terminate.assert_called_once()
+
+
+def test_watchdog_cancelled_on_interrupt():
+    """Interrupt cancels the watchdog so it doesn't fire against a dead proc."""
+    import time
+    handle = MagicMock(spec=subprocess.Popen)
+    handle.poll.return_value = None
+    provider = _mock_provider(handle)
+    p = PlaybackController(provider, max_duration_seconds=0.05)
+    p.speak("x", "id1")
+    p.interrupt()  # cancels watchdog
+    handle.reset_mock()
+    time.sleep(0.15)  # if the watchdog had fired, terminate would be called again
+    handle.terminate.assert_not_called()
+
+
+def test_interrupt_escalates_to_kill_when_terminate_stalls():
+    """Layer 2: terminate → wait → kill if the process refuses to die."""
+    handle = MagicMock(spec=subprocess.Popen)
+    handle.poll.return_value = None
+    handle.wait.side_effect = subprocess.TimeoutExpired(cmd="say", timeout=0.5)
+    provider = _mock_provider(handle)
+    p = PlaybackController(provider)
+    p.speak("x", "id1")
+    p.interrupt()
+    handle.terminate.assert_called_once()
+    handle.kill.assert_called_once()
+
+
+def test_interrupt_waits_for_clean_terminate():
+    """When terminate succeeds fast, kill is not called."""
+    handle = MagicMock(spec=subprocess.Popen)
+    handle.poll.return_value = None
+    handle.wait.return_value = 0  # exits cleanly
+    provider = _mock_provider(handle)
+    p = PlaybackController(provider)
+    p.speak("x", "id1")
+    p.interrupt()
+    handle.terminate.assert_called_once()
+    handle.kill.assert_not_called()
