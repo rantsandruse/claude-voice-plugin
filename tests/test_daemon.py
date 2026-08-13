@@ -103,6 +103,26 @@ def test_speak_handler_deduplicates():
     assert playback.speak.call_count == 1
 
 
+def test_speak_handler_same_id_different_text_speaks():
+    """Same response_id with different text (e.g., Stop reads a longer version
+    of the message that PreToolUse spoke earlier as a preamble) must not be
+    deduped away — otherwise the final answer is silently swallowed."""
+    core, _, _, _, playback, _, _ = _mk_core()
+    core.handle_speak({"op": "speak", "text": "let me look", "response_id": "r1"})
+    core.handle_speak({"op": "speak", "text": "here is the answer", "response_id": "r1"})
+    assert playback.speak.call_count == 2
+    assert playback.speak.call_args_list[1].args == ("here is the answer", "r1")
+
+
+def test_speak_handler_dedupes_same_id_same_text():
+    """Byte-identical repeats (Stop firing after PreToolUse for the same
+    unchanged text) still get deduped."""
+    core, _, _, _, playback, _, _ = _mk_core()
+    core.handle_speak({"op": "speak", "text": "same text", "response_id": "r1"})
+    core.handle_speak({"op": "speak", "text": "same text", "response_id": "r1"})
+    assert playback.speak.call_count == 1
+
+
 def test_replay_handler_calls_playback():
     core, _, _, _, playback, _, _ = _mk_core()
     playback.replay_last.return_value = True

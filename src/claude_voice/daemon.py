@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Callable
+import hashlib
 import threading
 import subprocess
 import sys
@@ -55,6 +56,13 @@ def _set_verbatim_flag() -> None:
         pass
 
 
+def _text_key(text: str) -> str:
+    """Short deterministic fingerprint for TTS dedup. Truncated SHA-1 to keep
+    memory bounded across long sessions — collision-safe within a single turn's
+    handful of speak calls."""
+    return hashlib.sha1(text.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
 class DaemonCore:
     """Non-UI wiring; VoiceDaemon adds the menu-bar shell."""
     def __init__(
@@ -79,6 +87,10 @@ class DaemonCore:
         self._on_state_change = on_state_change
         self._dispatch = dispatch or _default_dispatch
         self._last_spoken_response_id: str | None = None
+        # Text fingerprint of the last spoken text. Used together with
+        # response_id so a same-id message whose text has grown (streaming
+        # append, resummary drift) still gets spoken instead of deduped away.
+        self._last_spoken_text_key: str | None = None
         self._busy = False
         self._lock = threading.Lock()
 
@@ -182,10 +194,20 @@ class DaemonCore:
         response_id = msg.get("response_id", "")
         if not text:
             return {"ok": True, "skipped": "empty"}
+        text_key = _text_key(text)
         with self._lock:
-            if response_id and response_id == self._last_spoken_response_id:
+            # Dedup on the (id, text) pair: same id + same text = already
+            # spoken. If the text changed for the same id (e.g. Stop reads
+            # a longer version, or resummarization produces a new string),
+            # treat it as a new utterance and speak it.
+            if (
+                response_id
+                and response_id == self._last_spoken_response_id
+                and text_key == self._last_spoken_text_key
+            ):
                 return {"ok": True, "skipped": "duplicate"}
             self._last_spoken_response_id = response_id
+            self._last_spoken_text_key = text_key
         self._playback.speak(text, response_id)
         self._on_state_change("playing")
         return {"ok": True}
