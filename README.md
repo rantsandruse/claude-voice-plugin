@@ -99,13 +99,13 @@ hotkey:
   ptt: "alt_r"                # Right Option by default. Also: alt_l, cmd_r, f1..f12
 
 stt:
-  provider: "whisper_local"   # or "deepgram" for cloud
+  provider: "whisper_local"   # whisper_local (default, offline) | deepgram (cloud, needs DEEPGRAM_API_KEY)
   whisper_local:
     model: "small"            # tiny | base | small | medium | large-v3
 
 tts:
   enabled: true
-  provider: "say"             # or "elevenlabs" for cloud
+  provider: "say"             # say (default, offline, macOS built-in) | elevenlabs (cloud, needs ELEVENLABS_API_KEY)
   mode: "summary"             # summary (default) — every response goes through Claude Haiku for a spoken 1-2 sentences.
                               # prose — speak verbatim; still auto-summarizes above summary_threshold.
                               # Say "verbatim" (PTT + the single word) to override for the very next response.
@@ -121,9 +121,9 @@ tts:
 
 Put API keys in `~/.config/claude-voice/.env`:
 ```
-DEEPGRAM_API_KEY=...
-ELEVENLABS_API_KEY=...
-ANTHROPIC_API_KEY=...   # needed for summary mode (default). Skip only if you set tts.mode: "prose".
+DEEPGRAM_API_KEY=...     # optional: only needed if you set stt.provider: "deepgram"
+ELEVENLABS_API_KEY=...   # optional: only needed if you set tts.provider: "elevenlabs"
+ANTHROPIC_API_KEY=...    # needed for summary mode (default). Skip only if you set tts.mode: "prose".
 ```
 
 ## Voices (`say` provider)
@@ -173,13 +173,9 @@ claude-voice start
 
 The daemon preloads the Whisper model at startup so the first PTT press feels the same as the tenth. Startup blocks ~2 seconds on the model load. To auto-start on login: **System Settings → General → Login Items** → add `claude-voice`.
 
-**Push-to-talk** (from any focused text field):
-- Hold **Right Option** (⌥ on the right of the space bar)
-- Speak
-- Release
-- Transcript is pasted into the focused window
+Push-to-talk basics are in the [Quick Start](#quick-start). What follows are the voice-controlled and ambient behaviors that build on it.
 
-**Interrupt playing TTS:** press the PTT hotkey. Whatever's playing stops and recording begins.
+**Interrupt playing TTS:** press the PTT hotkey while Claude is speaking. Playback stops and recording starts immediately. (For a force-kill from the terminal when PTT itself isn't reaching the daemon, see `claude-voice interrupt` in the [CLI](#cli) section.)
 
 ### Voice commands
 
