@@ -128,15 +128,17 @@ def test_generation_starts_at_zero():
     assert core.handle_generation({})["generation"] == 0
 
 
-def test_generation_increments_on_successful_ptt_up():
-    """A completed PTT (audio captured) is the signal that the user has
-    started a new turn — that's when generation must advance."""
-    core, recorder, _, stt, _, _, _ = _mk_core()
+def test_generation_increments_on_committed_turn():
+    """A committed turn = audio captured + transcription non-empty + not the
+    hands-free 'verbatim' command. Only then does the user actually own a new
+    turn, so only then should gen advance."""
+    core, recorder, _, stt, _, _, injector = _mk_core()
     recorder.stop.return_value = _fake_audio()
     stt.transcribe_audio.return_value = "hello"
     assert core.handle_generation({})["generation"] == 0
     core.handle_hotkey(HotkeyEvent.PTT_UP)
     assert core.handle_generation({})["generation"] == 1
+    injector.assert_called_once_with("hello")
     # Second successful PTT: gen == 2.
     core.handle_hotkey(HotkeyEvent.PTT_UP)
     assert core.handle_generation({})["generation"] == 2
@@ -148,6 +150,31 @@ def test_generation_does_not_increment_when_recording_too_short():
     recorder.stop.return_value = None
     core.handle_hotkey(HotkeyEvent.PTT_UP)
     assert core.handle_generation({})["generation"] == 0
+
+
+def test_generation_does_not_increment_on_empty_transcription():
+    """PTT captured audio but Whisper returned empty — the user didn't commit
+    a turn. Bumping here would drop legitimate speaks from the prior turn."""
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = ""
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert core.handle_generation({})["generation"] == 0
+    injector.assert_not_called()
+
+
+def test_generation_does_not_increment_on_verbatim_command(tmp_path, mocker):
+    """The 'verbatim' hands-free command tweaks the NEXT response's mode; it
+    is not itself a new turn, so gen must not advance."""
+    flag_path = tmp_path / "next-verbatim.flag"
+    mocker.patch("claude_voice.daemon.VERBATIM_FLAG_PATH", flag_path)
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "verbatim"
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert core.handle_generation({})["generation"] == 0
+    injector.assert_not_called()
+    assert flag_path.exists()
 
 
 def test_speak_dropped_when_generation_is_stale():

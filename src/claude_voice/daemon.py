@@ -141,11 +141,6 @@ class DaemonCore:
                 self._on_state_change("idle")
                 return
             with self._lock:
-                # Bump the turn generation as soon as we have real audio for a
-                # new user turn. Any in-flight hook from the previous turn will
-                # have snapshotted the older generation; its late speak will be
-                # dropped by handle_speak.
-                self._current_generation += 1
                 self._busy = True
             self._on_state_change("transcribing")
             self._dispatch(self.run_transcribe_job, (audio_data,))
@@ -170,6 +165,12 @@ class DaemonCore:
                 self._play_tick("verbatim")
                 self._on_state_change("idle")
                 return
+            # This is the "committed new turn" moment: transcription succeeded,
+            # text is non-empty, and it's not a hands-free command. Bump gen
+            # here rather than at PTT_UP so brief mic taps and empty audio
+            # don't invalidate a previous turn's still-in-flight speak.
+            with self._lock:
+                self._current_generation += 1
             self._inject(text)
             self._play_tick("stop")
             self._on_state_change("idle")
@@ -224,6 +225,12 @@ class DaemonCore:
                 isinstance(speak_generation, int)
                 and speak_generation < self._current_generation
             ):
+                print(
+                    f"[daemon] drop stale speak: gen={speak_generation} "
+                    f"< current={self._current_generation} "
+                    f"response_id={response_id}",
+                    file=sys.stderr,
+                )
                 return {"ok": True, "skipped": "stale generation"}
             # Dedup on the (id, text) pair: same id + same text = already
             # spoken. If the text changed for the same id (e.g. Stop reads
@@ -234,6 +241,10 @@ class DaemonCore:
                 and response_id == self._last_spoken_response_id
                 and text_key == self._last_spoken_text_key
             ):
+                print(
+                    f"[daemon] drop duplicate: response_id={response_id}",
+                    file=sys.stderr,
+                )
                 return {"ok": True, "skipped": "duplicate"}
             self._last_spoken_response_id = response_id
             self._last_spoken_text_key = text_key
