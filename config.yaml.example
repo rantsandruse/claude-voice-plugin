@@ -13,7 +13,7 @@ stt:
 
 tts:
   enabled: true
-  provider: "elevenlabs"      # say (offline, macOS built-in) | elevenlabs (cloud, needs ELEVENLABS_API_KEY)
+  provider: "say"             # say (default, offline, macOS built-in) | elevenlabs (cloud, needs ELEVENLABS_API_KEY)
   mode: "summary"             # summary (default) | prose. Say "verbatim" (PTT alone) to override for the next response.
   summary_threshold: 500      # chars; above this always summarize
   min_summarize_chars: 200    # chars; below this always speak verbatim (skips Haiku even in summary mode)
