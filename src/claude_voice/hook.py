@@ -6,7 +6,8 @@ import sys
 from datetime import datetime, timezone
 
 from .config import CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
-from .transcript_reader import read_last_assistant, read_new_assistant_since_last_user
+import hashlib
+from .transcript_reader import AssistantMessage, read_new_assistant_since_last_user
 from .text_cleaner import clean_for_tts
 from .ipc import send_message
 
@@ -124,16 +125,26 @@ def main() -> int:
     if not transcript_path:
         return 0
 
-    # PreToolUse fires before Claude has necessarily emitted any new text in
-    # this turn. If we used read_last_assistant here, we'd pick up the prior
-    # turn's final response and speak it again — the exact "summary of an
-    # old response while Claude is still thinking" bug. Use the turn-scoped
-    # reader instead, which returns None if the transcript's tail is
-    # user-then-nothing.
     if event == "PreToolUse":
+        # Mid-turn: payload doesn't carry assistant text. Walk backwards
+        # from the tail, stopping at the last real user prompt — returns
+        # None if no new text exists yet, avoiding a re-speak of the prior
+        # turn while Claude is still thinking about the current one.
         msg = read_new_assistant_since_last_user(Path(transcript_path))
     else:
-        msg = read_last_assistant(Path(transcript_path))
+        # Stop: the payload carries the exact assistant text that triggered
+        # this hook invocation as `last_assistant_message`. Using it directly
+        # eliminates the transcript-scan races that a file-based reader is
+        # subject to (flush timing gap between thinking/text JSONL entries;
+        # a next-turn PTT landing in the file before we read). Claude Code
+        # doesn't include the API message id here, so we synthesize one
+        # from a text hash to keep the daemon's (response_id, text) dedup
+        # working.
+        last_asst = payload.get("last_assistant_message", "") or ""
+        if not last_asst.strip():
+            return 0
+        text_hash = hashlib.sha1(last_asst.encode("utf-8", errors="replace")).hexdigest()[:16]
+        msg = AssistantMessage(id=f"stop_{text_hash}", content=last_asst)
     if msg is None:
         return 0
 
