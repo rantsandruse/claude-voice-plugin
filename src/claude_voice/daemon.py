@@ -147,6 +147,7 @@ class DaemonCore:
 
     def run_transcribe_job(self, audio_data: tuple) -> None:
         audio, sample_rate = audio_data
+        audio_secs = len(audio) / float(sample_rate) if sample_rate else 0.0
         try:
             try:
                 text = self._stt.transcribe_audio(audio, sample_rate)
@@ -155,6 +156,13 @@ class DaemonCore:
                 self._on_state_change("error")
                 return
             if not text:
+                # Distinguishes "STT ran but returned nothing" (this branch)
+                # from "STT crashed" (above) and from "daemon died" (no log
+                # at all). Common when the user PTTs briefly or into silence.
+                print(
+                    f"[daemon] STT returned empty text ({audio_secs:.2f}s audio)",
+                    file=sys.stderr,
+                )
                 self._on_state_change("idle")
                 return
             # Hands-free command intercept: if the user spoke just "verbatim",
@@ -171,7 +179,12 @@ class DaemonCore:
             # don't invalidate a previous turn's still-in-flight speak.
             with self._lock:
                 self._current_generation += 1
-            self._inject(text)
+            try:
+                self._inject(text)
+            except Exception as e:
+                print(f"[daemon] inject failed: {e}", file=sys.stderr)
+                self._on_state_change("error")
+                return
             self._play_tick("stop")
             self._on_state_change("idle")
         finally:
