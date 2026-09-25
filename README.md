@@ -42,26 +42,12 @@ Everything after this point is reference material — skim as needed.
 
 ## Grant macOS Permissions (required)
 
-The daemon needs two permissions to work. Grant them **before** first use — the first PTT attempt otherwise crashes or silently fails.
+Before your first PTT press, grant two permissions in **System Settings → Privacy & Security**:
 
-### 1. Accessibility (required for paste)
+- **Accessibility** — add your terminal (`Terminal.app` or `iTerm.app`) *and* the Python interpreter you installed the package into (find with `which python3`). Required so the daemon can paste with ⌘V.
+- **Microphone** — macOS prompts automatically on first PTT. Grant to the same terminal and Python.
 
-The daemon uses `osascript` to send `⌘V` into the focused terminal. macOS blocks this by default.
-
-- Open **System Settings → Privacy & Security → Accessibility**
-- Click **+**, press **⌘⇧G** in the file picker to paste a hidden path
-- Add these paths (Terminal first has the highest hit rate):
-  1. `/System/Applications/Utilities/Terminal.app` — or `/Applications/iTerm.app` if you use iTerm2
-  2. The Python interpreter you installed the package into. Find it with `which python3` on the same shell you ran `./install.sh` in — common results: `/opt/homebrew/bin/python3`, `/opt/anaconda3/bin/python3`, or a venv's `bin/python3` if you activated one.
-- Toggle each **on**
-
-**Shortcut to open the pane directly:** `open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"`
-
-### 2. Microphone (required for STT)
-
-macOS will prompt automatically the first time you press PTT. Grant it to the same terminal / Python you added to Accessibility.
-
-If the prompt doesn't appear: System Settings → Privacy & Security → **Microphone** → toggle Terminal/iTerm and Python on.
+If PTT does nothing or you see "osascript is not allowed to send keystrokes," Accessibility isn't granted — see [Troubleshooting](#troubleshooting).
 
 ## Configure
 
@@ -99,7 +85,10 @@ Some utterances are intercepted as commands instead of pasted as prompt text. Al
 
 **Menu-bar icon** — 🎙️ idle · 🔴 recording · ⏳ transcribing · 🔊 playing TTS · ⚠️ error.
 
-**Audio ticks** — every tick is a short macOS system sound, scannable by ear without looking at the screen:
+**Audio ticks** — short macOS system sounds signal state changes, scannable by ear without looking.
+
+<details>
+<summary>Full sound reference</summary>
 
 | Sound | Fires on |
 |---|---|
@@ -109,6 +98,8 @@ Some utterances are intercepted as commands instead of pasted as prompt text. Al
 | **Ping** | Claude Code received your prompt (`UserPromptSubmit` hook) |
 | **Purr** | Claude is invoking a tool (`PreToolUse` hook) — heartbeat during work |
 | **Glass** | Voice command acknowledged — currently only fires for `"verbatim"` |
+
+</details>
 
 Ticks respect the `feedback.sounds: true` config; set to `false` to mute all at once. Spoken TTS content is controlled separately via `tts.enabled`.
 
@@ -128,7 +119,7 @@ claude-voice test-tts "hi"  # speak a phrase via the configured provider
 ## Voices (`say` provider)
 
 <details>
-<summary>Install Premium voices, list available voices, ElevenLabs note</summary>
+<summary>Install Premium voices, list available voices</summary>
 
 macOS ships tiered TTS voices — all free, all offline. **Ava (Premium)** is Siri-quality; install via **System Settings → Accessibility → Spoken Content → System Voice → Manage Voices…** and download any voice marked *(Premium)* under your locale — ~400 MB each, one-time.
 
@@ -141,8 +132,6 @@ List every voice on your system:
 ```bash
 say -v '?' | grep en_US
 ```
-
-**ElevenLabs note:** if you use `provider: "elevenlabs"`, the free tier only allows API access to voices you've generated or cloned yourself — library voices (Rachel, Adam, etc.) require a paid plan.
 
 </details>
 
@@ -177,10 +166,6 @@ claude-voice start                                 # daemon should stay up and s
 **TTS never fires when Claude finishes a response**
 - Check `~/.config/claude-voice/hook.log`. If it says `daemon offline`, start the daemon.
 - If the log is empty, either the `Stop` hook isn't registered (re-run `./install.sh`), or the hook binary isn't on Claude Code's exec PATH. Claude Code invokes hooks in a non-interactive subshell that does **not** source `~/.zshrc`, so `claude-voice-hook` sitting in `~/.local/bin`, `/opt/anaconda3/bin`, or a venv is not found. The installer resolves this via `shutil.which()` and writes the **absolute** path — verify with `grep claude-voice-hook ~/.claude/settings.json`. You should see a full path like `/opt/anaconda3/bin/claude-voice-hook`, not a bare command. If it's bare, re-run `./install.sh` from a shell where `which claude-voice-hook` resolves.
-
-**ElevenLabs returns 404 "voice_not_found"** — the `voice_id` must be a real ElevenLabs ID (opaque alphanumeric string like `21m00Tcm4TlvDq8ikWAM`), not a voice name.
-
-**ElevenLabs returns 401 "paid_plan_required"** — Free ElevenLabs plan can't use library voices via API. Either upgrade, use a voice you cloned/generated yourself, or switch `tts.provider` to `"say"`.
 
 **Whisper transcription mangles technical terms** — expected on the local model. Bump `stt.whisper_local.model` from `small` to `medium` (better accuracy, more RAM), or switch to Deepgram (`stt.provider: "deepgram"` + set `DEEPGRAM_API_KEY`).
 
