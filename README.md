@@ -221,7 +221,7 @@ Uninstall does not remove the Whisper model weights cached under `~/.cache/huggi
 
 Two processes talking over a Unix domain socket at `~/.config/claude-voice/daemon.sock`. Full design details:
 
-- Original spec: [`docs/superpowers/specs/2026-07-30-voice-plugin-design.md`](./docs/superpowers/specs/2026-07-30-voice-plugin-design.md)
-- Hardening retrospective: [`docs/superpowers/specs/2026-08-05-voice-plugin-hardening.md`](./docs/superpowers/specs/2026-08-05-voice-plugin-hardening.md)
+- Original spec: [`docs/design.md`](./docs/design.md)
+- Hardening retrospective: [`docs/hardening.md`](./docs/hardening.md)
 </content>
 </invoke>
