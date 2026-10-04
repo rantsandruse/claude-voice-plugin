@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Callable
 import hashlib
 import importlib.util
+import os
 import threading
 import subprocess
 import sys
@@ -406,9 +407,38 @@ def _purge_old_wavs(directory: Path = Path("/tmp/claude-voice"), older_than_hour
             pass
 
 
+_LOG_MAX_BYTES = 5 * 2**20
+
+
+def _redirect_output_to_log(path: Path) -> None:
+    """Send stdout/stderr to *path* when there's no terminal to show them.
+
+    `claude-voice restart` and login items start the daemon with output
+    discarded, which silently lost every [daemon] diagnostic. dup2 at the fd
+    level also catches native-library output and fatal tracebacks.
+    """
+    if sys.stderr.isatty():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.stat().st_size > _LOG_MAX_BYTES:
+            path.replace(path.with_name(path.name + ".1"))
+    except FileNotFoundError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.close(fd)
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    print(f"[daemon] --- started {time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()} ---",
+          file=sys.stderr)
+
+
 def run_daemon() -> None:
     load_dotenv_if_present()
     config = load_config()
+    _redirect_output_to_log(Path(config.logging.path).expanduser())
     secrets = read_secrets()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _purge_old_wavs()
