@@ -73,3 +73,18 @@ def test_real_vad_rejects_digital_silence():
     # Unmocked: exercises the actual silero model shipped with faster-whisper.
     from claude_voice.stt.whisper_cpp import _speech_only
     assert _speech_only(np.zeros(2 * 16000, dtype=np.float32)) is None
+
+
+def test_preview_passes_abort_callback_to_model(mocker):
+    model, _ = _patch_model(mocker, ["fix the bug"])
+    abort = lambda: False
+    p = WhisperCppProvider(WhisperCppConfig())
+    assert p.transcribe_preview(np.zeros(16000, dtype=np.float32), abort) == "fix the bug"
+    assert model.transcribe.call_args.kwargs["abort_callback"] is abort
+
+
+def test_preview_already_aborted_skips_model(mocker):
+    model, _ = _patch_model(mocker, ["fix the bug"])
+    p = WhisperCppProvider(WhisperCppConfig())
+    assert p.transcribe_preview(np.zeros(16000, dtype=np.float32), lambda: True) == ""
+    model.transcribe.assert_not_called()

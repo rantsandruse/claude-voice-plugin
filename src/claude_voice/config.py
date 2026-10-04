@@ -113,6 +113,10 @@ class InjectConfig:
 class FeedbackConfig:
     sounds: bool = True
     menu_bar: bool = True
+    # Caption bar at the bottom of the screen showing the transcript while
+    # PTT is held. Display only; needs an STT provider with
+    # transcribe_preview (currently whisper_cpp).
+    live_preview: bool = True
 
 
 @dataclass(frozen=True)

@@ -109,3 +109,18 @@ def test_start_retries_after_portaudio_error(mocker, tmp_path):
     term.assert_called_once()
     init.assert_called_once()
     assert "stream" in holder
+
+
+def test_snapshot_returns_audio_so_far_without_stopping(fake_stream):
+    rec = Recorder()
+    assert rec.snapshot() is None  # not recording
+    rec.start()
+    assert rec.snapshot() is None  # recording, nothing captured yet
+    fake_stream["stream"].feed(0.5)
+    snap = rec.snapshot()
+    assert snap.dtype == np.float32 and len(snap) == 8000
+    fake_stream["stream"].feed(0.5)
+    assert len(rec.snapshot()) == 16000  # still recording, buffer kept growing
+    audio, _ = rec.stop()
+    assert len(audio) == 16000
+    assert rec.snapshot() is None
