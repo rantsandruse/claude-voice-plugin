@@ -1,0 +1,218 @@
+[
+  {
+    "spec": "whisper_local:small",
+    "load_s": 1.4198162079846952,
+    "warmup_s": 5.083013093098998e-06,
+    "footprint_mb": 370.89459228515625,
+    "peak_footprint_mb": 709.5499267578125,
+    "clips": [
+      {
+        "clip": "me_long_refactor",
+        "audio_s": 19.78875,
+        "ref": "I want to refactor the speech to text layer so every provider shares one cleanup function. Move the hallucination filter into the text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happened instead of guessing.",
+        "text": "I want to refactor the speech to text layer so every provider shares one clean function. Move the hallucination filter into a text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happens instead of guessing",
+        "latency_s": 2.7025334580102935
+      },
+      {
+        "clip": "me_med_config",
+        "audio_s": 4.415625,
+        "ref": "read the config file and tell me which speech provider is selected by default",
+        "text": "Read the config file and tell me which speech provider is selected by default",
+        "latency_s": 1.2697733750101179
+      },
+      {
+        "clip": "me_med_rename",
+        "audio_s": 0.830625,
+        "ref": "rename the transcribe audio method and update every caller in the daemon",
+        "text": "including the new",
+        "latency_s": 1.1679457090212964
+      },
+      {
+        "clip": "me_med_test",
+        "audio_s": 0.714375,
+        "ref": "add a unit test that checks the recorder returns nothing for very short clips",
+        "text": "prediction",
+        "latency_s": 1.1545690420025494
+      },
+      {
+        "clip": "me_short_bug",
+        "audio_s": 0.950625,
+        "ref": "fix the bug in the daemon",
+        "text": "",
+        "latency_s": 0.0023217910202220082
+      },
+      {
+        "clip": "me_short_func",
+        "audio_s": 0.8409375,
+        "ref": "what does this function do",
+        "text": "",
+        "latency_s": 0.0020345840021036565
+      },
+      {
+        "clip": "me_short_push",
+        "audio_s": 4.4278125,
+        "ref": "commit the changes and push the branch",
+        "text": "commit the changes and push the branch",
+        "latency_s": 1.1631130420137197
+      },
+      {
+        "clip": "me_short_tests",
+        "audio_s": 2.615625,
+        "ref": "run the tests",
+        "text": "Run the tests",
+        "latency_s": 1.159915458993055
+      },
+      {
+        "clip": "me_silence",
+        "audio_s": 1.0134375,
+        "ref": "",
+        "text": "",
+        "latency_s": 0.0024965830089058727
+      }
+    ]
+  },
+  {
+    "spec": "whisper_cpp:small",
+    "load_s": 0.41721637500450015,
+    "warmup_s": 0.3126550420129206,
+    "footprint_mb": 813.3008422851562,
+    "peak_footprint_mb": 815.0039672851562,
+    "clips": [
+      {
+        "clip": "me_long_refactor",
+        "audio_s": 19.78875,
+        "ref": "I want to refactor the speech to text layer so every provider shares one cleanup function. Move the hallucination filter into the text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happened instead of guessing.",
+        "text": "I want to refactor the speech to text layer so every provider shares one clean function. Move the hallucination filter into a text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happens instead of guessing",
+        "latency_s": 0.6375408750027418
+      },
+      {
+        "clip": "me_med_config",
+        "audio_s": 4.415625,
+        "ref": "read the config file and tell me which speech provider is selected by default",
+        "text": "Read the config file and tell me which speech provider is selected by default",
+        "latency_s": 0.29938762498204596
+      },
+      {
+        "clip": "me_med_rename",
+        "audio_s": 0.830625,
+        "ref": "rename the transcribe audio method and update every caller in the daemon",
+        "text": "including the new",
+        "latency_s": 0.22405287498258986
+      },
+      {
+        "clip": "me_med_test",
+        "audio_s": 0.714375,
+        "ref": "add a unit test that checks the recorder returns nothing for very short clips",
+        "text": "prediction",
+        "latency_s": 0.26489104199572466
+      },
+      {
+        "clip": "me_short_bug",
+        "audio_s": 0.950625,
+        "ref": "fix the bug in the daemon",
+        "text": "",
+        "latency_s": 0.002089834015350789
+      },
+      {
+        "clip": "me_short_func",
+        "audio_s": 0.8409375,
+        "ref": "what does this function do",
+        "text": "",
+        "latency_s": 0.001671916019404307
+      },
+      {
+        "clip": "me_short_push",
+        "audio_s": 4.4278125,
+        "ref": "commit the changes and push the branch",
+        "text": "commit the changes and push the branch",
+        "latency_s": 0.27800845899037085
+      },
+      {
+        "clip": "me_short_tests",
+        "audio_s": 2.615625,
+        "ref": "run the tests",
+        "text": "Run the tests",
+        "latency_s": 0.22879724999074824
+      },
+      {
+        "clip": "me_silence",
+        "audio_s": 1.0134375,
+        "ref": "",
+        "text": "",
+        "latency_s": 0.0019431659893598408
+      }
+    ]
+  },
+  {
+    "spec": "whisper_cpp:large-v3-turbo-q5_0",
+    "load_s": 0.44771158299408853,
+    "warmup_s": 1.1804269999847747,
+    "footprint_mb": 757.2382202148438,
+    "peak_footprint_mb": 768.613037109375,
+    "clips": [
+      {
+        "clip": "me_long_refactor",
+        "audio_s": 19.78875,
+        "ref": "I want to refactor the speech to text layer so every provider shares one cleanup function. Move the hallucination filter into the text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happened instead of guessing.",
+        "text": "I want to refactor the speech to text layer so every provider shares one clean function. Move the hallucination filter into a text cleaner module, update the deepgram and whisper providers to call it, and make sure the existing tests still pass before you commit anything. If something breaks, stop and explain what happens instead of guessing",
+        "latency_s": 1.47724133299198
+      },
+      {
+        "clip": "me_med_config",
+        "audio_s": 4.415625,
+        "ref": "read the config file and tell me which speech provider is selected by default",
+        "text": "Read the config file and tell me which speech provider is selected by default",
+        "latency_s": 1.179812459013192
+      },
+      {
+        "clip": "me_med_rename",
+        "audio_s": 0.830625,
+        "ref": "rename the transcribe audio method and update every caller in the daemon",
+        "text": "including the new",
+        "latency_s": 1.2288043329899665
+      },
+      {
+        "clip": "me_med_test",
+        "audio_s": 0.714375,
+        "ref": "add a unit test that checks the recorder returns nothing for very short clips",
+        "text": "prediction",
+        "latency_s": 1.1317433749791235
+      },
+      {
+        "clip": "me_short_bug",
+        "audio_s": 0.950625,
+        "ref": "fix the bug in the daemon",
+        "text": "",
+        "latency_s": 0.0019529999990481883
+      },
+      {
+        "clip": "me_short_func",
+        "audio_s": 0.8409375,
+        "ref": "what does this function do",
+        "text": "",
+        "latency_s": 0.0017090420005843043
+      },
+      {
+        "clip": "me_short_push",
+        "audio_s": 4.4278125,
+        "ref": "commit the changes and push the branch",
+        "text": "Commit the changes and push the branch",
+        "latency_s": 1.1509923330158927
+      },
+      {
+        "clip": "me_short_tests",
+        "audio_s": 2.615625,
+        "ref": "run the tests",
+        "text": "Run the tests",
+        "latency_s": 1.1218704160128254
+      },
+      {
+        "clip": "me_silence",
+        "audio_s": 1.0134375,
+        "ref": "",
+        "text": "",
+        "latency_s": 0.0030802910041529685
+      }
+    ]
+  }
+]
