@@ -68,6 +68,17 @@ class Recorder:
             self._stream = self._open_stream()
             self._stream.start()
 
+    def snapshot(self) -> np.ndarray | None:
+        """Float32 copy of everything recorded so far, without stopping.
+        Used by the live preview. list() copies atomically under the GIL,
+        so this is safe against the audio callback appending concurrently."""
+        if not self._active:
+            return None
+        chunks = list(self._buffer)
+        if not chunks:
+            return None
+        return np.concatenate(chunks, axis=0).reshape(-1).astype(np.float32) / 32768.0
+
     def stop(self) -> tuple[np.ndarray, int] | None:
         """Stop recording. Returns (float32 audio in [-1, 1], sample_rate) or
         None if the recording was too short. No disk I/O — audio is handed to

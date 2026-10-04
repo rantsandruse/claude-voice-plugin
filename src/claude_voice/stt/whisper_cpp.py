@@ -1,5 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Callable
+import threading
 import wave
 import numpy as np
 
@@ -43,6 +45,9 @@ class WhisperCppProvider:
     def __init__(self, config: WhisperCppConfig):
         self._config = config
         self._model = None
+        # The whisper.cpp context isn't safe to share across threads; the live
+        # preview and the final transcription take turns.
+        self._lock = threading.Lock()
 
     def _model_get(self):
         if self._model is None:
@@ -64,8 +69,20 @@ class WhisperCppProvider:
     def transcribe_audio(self, audio: np.ndarray, sample_rate: int) -> str:
         if sample_rate != 16000:
             raise ValueError(f"expected 16000 Hz audio, got {sample_rate}")
+        return self._run(audio, abort=None)
+
+    def transcribe_preview(self, audio: np.ndarray, should_abort: Callable[[], bool]) -> str:
+        """Best-effort transcript of a recording still in progress.
+        *should_abort* cancels the run once the key is released; the final
+        transcription then runs on the full clip as usual."""
+        return self._run(audio, abort=should_abort)
+
+    def _run(self, audio: np.ndarray, abort: Callable[[], bool] | None) -> str:
         speech = _speech_only(audio.astype(np.float32))
         if speech is None:
             return ""
-        segments = self._model_get().transcribe(speech)
+        with self._lock:
+            if abort is not None and abort():
+                return ""
+            segments = self._model_get().transcribe(speech, abort_callback=abort)
         return clean_transcript(" ".join(s.text.strip() for s in segments))

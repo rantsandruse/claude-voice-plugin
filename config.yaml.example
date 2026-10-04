@@ -35,6 +35,7 @@ inject:
 feedback:
   sounds: true                # start/stop/error ticks
   menu_bar: true
+  live_preview: true          # show the transcript at the bottom of the screen while you hold the key (whisper_cpp only)
 
 logging:
   level: "info"

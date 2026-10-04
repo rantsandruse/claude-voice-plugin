@@ -326,3 +326,35 @@ def test_oversized_log_is_rotated(tmp_path):
     _run_redirect_in_subprocess(log, subprocess.DEVNULL)
     assert (tmp_path / "daemon.log.1").stat().st_size == _LOG_MAX_BYTES + 1
     assert "[daemon] hello" in log.read_text()
+
+
+def _mk_core_with_preview():
+    from unittest.mock import MagicMock
+    core, recorder, hotkey, stt, playback, ipc, injector = _mk_core()
+    preview = MagicMock()
+    core._preview = preview
+    return core, recorder, stt, preview
+
+
+def test_preview_starts_on_press_and_stops_before_final_transcription():
+    core, recorder, stt, preview = _mk_core_with_preview()
+    order = []
+    preview.stop.side_effect = lambda: order.append("preview.stop")
+
+    def stop_recorder():
+        order.append("recorder.stop")
+        return _fake_audio()
+
+    recorder.stop.side_effect = stop_recorder
+    stt.transcribe_audio.return_value = "hello"
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    preview.start.assert_called_once()
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert order == ["preview.stop", "recorder.stop"]
+
+
+def test_preview_not_started_when_recorder_fails():
+    core, recorder, _, preview = _mk_core_with_preview()
+    recorder.start.side_effect = RuntimeError("mic gone")
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    preview.start.assert_not_called()

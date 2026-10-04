@@ -14,6 +14,7 @@ from PyObjCTools.AppHelper import callAfter
 
 from .config import Config, CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
 from .hotkey import HotkeyListener, HotkeyEvent
+from .preview import LivePreview
 from .recorder import Recorder
 from .playback import PlaybackController
 from .ipc import IPCServer, SOCKET_PATH
@@ -88,6 +89,7 @@ class DaemonCore:
         inject_fn: Callable[[str], None],
         on_state_change: Callable[[str], None],
         dispatch: Callable[[Callable, tuple], None] | None = None,
+        preview: LivePreview | None = None,
     ):
         self._config = config
         self._recorder = recorder
@@ -98,6 +100,7 @@ class DaemonCore:
         self._inject = inject_fn
         self._on_state_change = on_state_change
         self._dispatch = dispatch or _default_dispatch
+        self._preview = preview
         self._last_spoken_response_id: str | None = None
         # Text fingerprint of the last spoken text. Used together with
         # response_id so a same-id message whose text has grown (streaming
@@ -137,7 +140,13 @@ class DaemonCore:
                 return
             self._on_state_change("recording")
             self._play_tick("start")
+            if self._preview is not None:
+                self._preview.start()
         elif event == HotkeyEvent.PTT_UP:
+            # Stop the preview first: it cancels any in-flight preview run so
+            # the final transcription doesn't wait behind it.
+            if self._preview is not None:
+                self._preview.stop()
             with self._lock:
                 if self._busy:
                     self._play_tick("busy")
@@ -339,6 +348,17 @@ class VoiceDaemon(rumps.App):
         recorder = Recorder()
         hotkey_listener = HotkeyListener(config.hotkey, on_event=self._on_hotkey)
 
+        preview = None
+        if config.feedback.live_preview and hasattr(stt, "transcribe_preview"):
+            from .overlay import PreviewOverlay
+            overlay = PreviewOverlay()
+            preview = LivePreview(
+                snapshot=recorder.snapshot,
+                transcribe=stt.transcribe_preview,
+                show=overlay.show,
+                hide=overlay.hide,
+            )
+
         # Handlers dict is mutated after DaemonCore exists (they close over self._core)
         handlers: dict = {}
         ipc = IPCServer(SOCKET_PATH, handlers)
@@ -352,6 +372,7 @@ class VoiceDaemon(rumps.App):
             ipc=ipc,
             inject_fn=lambda text: inject(text, auto_submit=config.inject.auto_submit),
             on_state_change=self._on_state_change,
+            preview=preview,
         )
         handlers["speak"] = self._core.handle_speak
         handlers["replay"] = self._core.handle_replay
