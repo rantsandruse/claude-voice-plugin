@@ -12,6 +12,23 @@ WHISPER_HALLUCINATION_PATTERNS: list[str] = [
     ".",  # single period from empty audio
 ]
 
+
+_NON_SPEECH_TAG = re.compile(r"\[[A-Z_ ]+\]")
+
+
+def clean_transcript(text: str) -> str:
+    """Normalize STT output and drop known Whisper silence hallucinations."""
+    text = _NON_SPEECH_TAG.sub(" ", text)  # e.g. whisper.cpp's [BLANK_AUDIO]
+    text = re.sub(r"\s+", " ", text).strip().rstrip(".")
+    if not text:
+        return ""
+    low = text.lower()
+    for phrase in WHISPER_HALLUCINATION_PATTERNS:
+        if phrase in low and len(text) < len(phrase) + 5:
+            return ""
+    return text
+
+
 _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
 _TOOL_USE = re.compile(r"<tool_use>.*?</tool_use>", re.DOTALL | re.IGNORECASE)

@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 import hashlib
+import importlib.util
 import threading
 import subprocess
 import sys
@@ -25,6 +26,16 @@ from .tts.elevenlabs import ElevenLabsProvider
 def _make_stt(config: Config, secrets: dict[str, str | None]):
     if config.stt.provider == "deepgram" and secrets.get("DEEPGRAM_API_KEY"):
         return DeepgramProvider(config.stt.deepgram, secrets["DEEPGRAM_API_KEY"])
+    # Imported lazily so a broken or missing native wheel can't stop the
+    # daemon from starting; faster-whisper is always installed as a fallback.
+    if config.stt.provider == "whisper_cpp":
+        if importlib.util.find_spec("pywhispercpp") is not None:
+            from .stt.whisper_cpp import WhisperCppProvider
+            return WhisperCppProvider(config.stt.whisper_cpp)
+        print("[daemon] pywhispercpp not installed; falling back to whisper_local", file=sys.stderr)
+    if config.stt.provider == "parakeet":
+        from .stt.parakeet import ParakeetProvider
+        return ParakeetProvider(config.stt.parakeet)
     return WhisperLocalProvider(config.stt.whisper_local)
 
 

@@ -37,6 +37,7 @@ Everything after this point is reference material — skim as needed.
 - macOS 14+ (Sonoma or later)
 - Python 3.11+
 - ~500 MB free disk space (for the Whisper `small` model, downloaded on first use)
+- Apple Silicon recommended: the default STT engine (whisper.cpp) runs on the GPU via Metal
 - **`ANTHROPIC_API_KEY`** — required if you use summary mode (the default). Every response goes through Claude Haiku before being spoken. Skip only if you switch to `tts.mode: "prose"`.
 - Optional: API keys for [Deepgram](https://deepgram.com) (STT) and/or [ElevenLabs](https://elevenlabs.io) (TTS) if you want cloud quality
 
@@ -56,7 +57,7 @@ Config lives at `~/.config/claude-voice/config.yaml` — see [`config.yaml.examp
 Keys you'll actually touch:
 
 - `hotkey.ptt` — default `alt_r` (Right Option). Also: `alt_l`, `cmd_r`, `f1..f12`.
-- `stt.provider` — `whisper_local` (default, offline) or `deepgram` (cloud).
+- `stt.provider` — `whisper_cpp` (default, offline, GPU), `whisper_local` (offline, CPU; also the automatic fallback), `parakeet` (offline, `pip install -e '.[parakeet]'`), or `deepgram` (cloud). Compare them on your own voice with `scripts/bench_stt.py`.
 - `tts.provider` — `say` (default, offline, macOS built-in) or `elevenlabs` (cloud).
 - `tts.mode` — `summary` (default, Haiku condenses) or `prose` (verbatim).
 
@@ -167,7 +168,7 @@ claude-voice start                                 # daemon should stay up and s
 - Check `~/.config/claude-voice/hook.log`. If it says `daemon offline`, start the daemon.
 - If the log is empty, either the `Stop` hook isn't registered (re-run `./install.sh`), or the hook binary isn't on Claude Code's exec PATH. Claude Code invokes hooks in a non-interactive subshell that does **not** source `~/.zshrc`, so `claude-voice-hook` sitting in `~/.local/bin`, `/opt/anaconda3/bin`, or a venv is not found. The installer resolves this via `shutil.which()` and writes the **absolute** path — verify with `grep claude-voice-hook ~/.claude/settings.json`. You should see a full path like `/opt/anaconda3/bin/claude-voice-hook`, not a bare command. If it's bare, re-run `./install.sh` from a shell where `which claude-voice-hook` resolves.
 
-**Whisper transcription mangles technical terms** — expected on the local model. Bump `stt.whisper_local.model` from `small` to `medium` (better accuracy, more RAM), or switch to Deepgram (`stt.provider: "deepgram"` + set `DEEPGRAM_API_KEY`).
+**Whisper transcription mangles technical terms** — expected on the local model. Bump `stt.whisper_cpp.model` from `small` to `large-v3-turbo-q5_0` (better accuracy, more RAM), or switch to Deepgram (`stt.provider: "deepgram"` + set `DEEPGRAM_API_KEY`).
 
 **TTS is stuck / playing forever / `claude-voice status` shows `"playing": true` for a long time**
 - **Fastest fix:** `claude-voice interrupt` — force-terminates the current TTS subprocess.
@@ -198,7 +199,7 @@ rm -rf ~/.config/claude-voice
 #    (edit by hand — the installer doesn't ship a merge-remove helper)
 ```
 
-Uninstall does not remove the Whisper model weights cached under `~/.cache/huggingface/`. Delete that folder manually if you want the ~500 MB back.
+Uninstall does not remove cached model weights: whisper.cpp models live in `~/Library/Application Support/pywhispercpp/models/`, faster-whisper and Parakeet models in `~/.cache/huggingface/`. Delete them manually if you want the space back.
 
 </details>
 

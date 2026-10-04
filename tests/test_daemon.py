@@ -272,3 +272,23 @@ def test_verbatim_only_matches_standalone_word(tmp_path, mocker):
 
     injector.assert_called_once_with("please summarize verbatim")
     assert not flag_path.exists()
+
+
+def test_make_stt_selects_optional_local_backends():
+    from claude_voice.config import Config, STTConfig
+    from claude_voice.daemon import _make_stt
+    from claude_voice.stt.parakeet import ParakeetProvider
+    from claude_voice.stt.whisper_cpp import WhisperCppProvider
+
+    # Constructing providers is lazy (no model load), so this stays fast.
+    assert isinstance(_make_stt(Config(stt=STTConfig(provider="whisper_cpp")), {}), WhisperCppProvider)
+    assert isinstance(_make_stt(Config(stt=STTConfig(provider="parakeet")), {}), ParakeetProvider)
+
+
+def test_make_stt_falls_back_when_whisper_cpp_missing(mocker):
+    from claude_voice.config import Config
+    from claude_voice.daemon import _make_stt
+    from claude_voice.stt.whisper_local import WhisperLocalProvider
+
+    mocker.patch("claude_voice.daemon.importlib.util.find_spec", return_value=None)
+    assert isinstance(_make_stt(Config(), {}), WhisperLocalProvider)
