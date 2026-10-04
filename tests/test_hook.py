@@ -11,6 +11,18 @@ def _run_with_stdin(payload: dict, mocker) -> int:
     return main()
 
 
+def _stop_payload(jsonl: Path) -> dict:
+    """A Stop payload as Claude Code sends it: the final assistant text rides
+    in `last_assistant_message`, mirroring the transcript's last entry."""
+    entry = json.loads(jsonl.read_text().splitlines()[-1])
+    text = "".join(b["text"] for b in entry["message"]["content"] if b["type"] == "text")
+    return {
+        "hook_event_name": "Stop",
+        "transcript_path": str(jsonl),
+        "last_assistant_message": text,
+    }
+
+
 def test_no_transcript_path_returns_0(mocker):
     assert _run_with_stdin({"hook_event_name": "Stop"}, mocker) == 0
 
@@ -36,14 +48,45 @@ def test_sends_speak_message(tmp_path, mocker):
         return_value={"ANTHROPIC_API_KEY": None},
     )
     rc = _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     assert rc == 0
     assert send.called
     msg = send.call_args.args[0]
     assert msg["op"] == "speak"
-    assert msg["response_id"] == "m1"
+    # Stop payloads carry no API message id; the hook derives one from a
+    # text hash so the daemon's dedup still works.
+    assert msg["response_id"].startswith("stop_")
     assert "Hello there" in msg["text"]
+
+
+def test_stop_speaks_payload_text_not_stale_transcript(tmp_path, mocker):
+    """Regression for the lagged-by-one bug: when the transcript hasn't
+    flushed the final text yet, Stop must speak the payload's text."""
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"text","text":"Previous turn."}]}}\n'
+    )
+    send = mocker.patch("claude_voice.hook.send_message", return_value={"ok": True})
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": None})
+    _run_with_stdin({
+        "hook_event_name": "Stop",
+        "transcript_path": str(jsonl),
+        "last_assistant_message": "Current turn.",
+    }, mocker)
+    assert "Current turn" in send.call_args.args[0]["text"]
+
+
+def test_stop_without_last_assistant_message_skips_send(tmp_path, mocker):
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"text","text":"Previous turn."}]}}\n'
+    )
+    send = mocker.patch("claude_voice.hook.send_message")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    _run_with_stdin({"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker)
+    send.assert_not_called()
 
 
 def test_empty_cleaned_text_skips_send(tmp_path, mocker):
@@ -58,7 +101,7 @@ def test_empty_cleaned_text_skips_send(tmp_path, mocker):
         return_value={"ANTHROPIC_API_KEY": None},
     )
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     send.assert_not_called()
 
@@ -85,7 +128,7 @@ def test_summarize_used_for_long_response(tmp_path, mocker):
         "claude_voice.hook.send_message", return_value={"ok": True}
     )
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     summarize.assert_called_once()
     assert send.call_args.args[0]["text"] == "short summary"
@@ -158,7 +201,7 @@ def test_verbatim_flag_skips_summarization(tmp_path, mocker):
     )
 
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
 
     summarize_mock.assert_not_called()
@@ -197,7 +240,7 @@ def test_verbatim_flag_absent_still_summarizes_by_default(tmp_path, mocker):
     )
 
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
 
     summarize_mock.assert_called_once()
@@ -228,7 +271,7 @@ def test_short_response_skips_summarize_even_in_summary_mode(tmp_path, mocker):
     )
 
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
 
     summarize_mock.assert_not_called()
@@ -259,7 +302,7 @@ def test_over_5000_chars_forces_summarize_even_below_floor_conflict(tmp_path, mo
     )
 
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
 
     summarize_mock.assert_called_once()
@@ -284,7 +327,7 @@ def test_hook_stamps_speak_with_daemon_generation(tmp_path, mocker):
         side_effect=[{"ok": True, "generation": 7}, {"ok": True}],
     )
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     assert send.call_count == 2
     assert send.call_args_list[0].args[0]["op"] == "generation"
@@ -310,7 +353,7 @@ def test_hook_omits_generation_when_daemon_query_fails(tmp_path, mocker):
         side_effect=[None, {"ok": True}],
     )
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     speak_msg = send.call_args_list[1].args[0]
     assert speak_msg["op"] == "speak"
@@ -331,7 +374,7 @@ def test_daemon_offline_writes_log(tmp_path, mocker):
         return_value={"ANTHROPIC_API_KEY": None},
     )
     _run_with_stdin(
-        {"hook_event_name": "Stop", "transcript_path": str(jsonl)}, mocker
+        _stop_payload(jsonl), mocker
     )
     assert log_path.exists()
     assert "daemon offline" in log_path.read_text()
