@@ -12,6 +12,8 @@ Moving push-to-talk transcription from **faster-whisper on the CPU** to **whispe
 
 The engine changed; the model and accuracy didn't.
 
+Of the four local setups measured (faster-whisper, whisper.cpp `small`, whisper.cpp `large-v3-turbo`, Parakeet), whisper.cpp `small` was the best fit for an 8 GB Mac. Parakeet was ~100 ms faster but used 3.5× the memory and made more errors, and turbo was no faster than the old CPU setup.
+
 ## Setup
 
 | | |
@@ -59,12 +61,14 @@ An earlier run of the same clips gave 4.7× / 4.6× / 4.1× / 3.3× (total 3.9×
 
 ## Results: all engines (my voice, before VAD)
 
-| Engine | "Run the tests" | Config sentence | 20 s paragraph | Memory |
-|---|---|---|---|---|
-| faster-whisper `small` (CPU) | 1,098 ms | 1,214 ms | 1,898 ms | 0.4 GB (0.7 peak) |
-| **whisper.cpp `small` (Metal)** | **232 ms** | **294 ms** | **583 ms** | 0.8 GB |
-| whisper.cpp `large-v3-turbo-q5_0` (Metal) | 1,113 ms | 1,141 ms | 1,308 ms | 0.7 GB |
-| Parakeet TDT 0.6B v3 (MLX) | 122 ms | 162 ms | 482 ms | 2.8 GB |
+| Engine | "Run the tests" | Config sentence | 20 s paragraph | Word errors | Memory |
+|---|---|---|---|---|---|
+| faster-whisper `small` (CPU) | 1,098 ms | 1,214 ms | 1,898 ms | 3.7% | 0.4 GB (0.7 peak) |
+| **whisper.cpp `small` (Metal)** | **232 ms** | **294 ms** | **583 ms** | **3.7%** | 0.8 GB |
+| whisper.cpp `large-v3-turbo-q5_0` (Metal) | 1,113 ms | 1,141 ms | 1,308 ms | 3.7% | 0.7 GB |
+| Parakeet TDT 0.6B v3 (MLX) | 122 ms | 162 ms | 482 ms | 7.4% | 2.8 GB |
+
+Word errors are over the 4 usable voice clips (81 words).
 
 - **Accuracy:** all engines transcribed the short and medium clips perfectly. On the paragraph, the three Whisper setups made the same 3 "errors" (probably my own misreadings of the prompt). Parakeet added two more ("speech to a text", "deep gram").
 - **Quantized large-v3-turbo** was no faster than CPU `small` on short commands and no more accurate on these clips, so it wasn't worth it here.
@@ -72,13 +76,28 @@ An earlier run of the same clips gave 4.7× / 4.6× / 4.1× / 3.3× (total 3.9×
 
 ## Results: synthetic clips (`say` voice)
 
-The same pattern on clean, consistent audio (after VAD):
+The same eight prompts spoken by macOS `say`: clean, consistent audio, with every clip usable.
+
+### All four engines (before VAD)
+
+| Engine | Short commands (4, mean) | Medium sentences (3, mean) | Long paragraph | Word errors | Memory |
+|---|---|---|---|---|---|
+| faster-whisper `small` (CPU) | 1,353 ms | 1,908 ms | 3,541 ms | 2.5% | 0.4 GB |
+| **whisper.cpp `small` (Metal)** | **240 ms** | **286 ms** | **620 ms** | **1.7%** | 0.7 GB |
+| whisper.cpp `large-v3-turbo-q5_0` (Metal) | 1,131 ms | 1,164 ms | 1,360 ms | 1.7% | 0.7 GB |
+| Parakeet TDT 0.6B v3 (MLX) | 109 ms | 168 ms | 623 ms | 4.2% | 3.1 GB |
+
+Word errors are over 118 words. Every error from every engine was a sound-alike: "daemon" → "demon" (all four engines), "layer" → "layers", "Deepgram" → "deep gram", "caller" → "colour" (Parakeet).
+
+### faster-whisper vs whisper.cpp (after VAD)
 
 | Clip type | faster-whisper | whisper.cpp `small` | Speedup |
 |---|---|---|---|
 | Short commands (4 clips, mean) | 1,144 ms | 242 ms | 4.7× |
 | Medium sentences (3 clips, mean) | 1,247 ms | 294 ms | 4.2× |
 | Long paragraph | 1,926 ms | 653 ms | 2.9× |
+
+Note the CPU engine's variance again. The same synthetic clips took 1,353 / 1,908 / 3,541 ms in the earlier run and 1,144 / 1,247 / 1,926 ms here. whisper.cpp's numbers barely moved (240 → 242, 286 → 294, 620 → 653 ms).
 
 ## Why it's faster
 
@@ -89,9 +108,19 @@ The same pattern on clean, consistent audio (after VAD):
 
 ## Silent presses
 
-Before silence trimming, whisper.cpp spent ~230 ms on a silent press and returned `[BLANK_AUDIO]` (with `small`) or "Thank you" (with turbo). With auto-submit on, that text would have been sent as a prompt.
+With auto-submit on, any text produced on a silent press gets sent to Claude as a prompt, so every engine was checked on silence. Two silent clips were used: 2 s of digital silence (synthetic) and 1 s of real room silence from my mic.
 
-With the silero VAD in front, a silent press takes **~2 ms** on either engine and returns nothing, because Whisper never runs. Speech clips gained no measurable latency from the VAD.
+| Engine | Digital silence | Room silence (my mic) | Time spent |
+|---|---|---|---|
+| faster-whisper `small` | nothing ✅ | nothing ✅ | ~2–4 ms (its built-in VAD skips the model) |
+| whisper.cpp `small`, no VAD | `[BLANK_AUDIO]` ❌ | `[BLANK_AUDIO]` ❌ | ~230 ms |
+| whisper.cpp turbo, no VAD | "Thank you" ❌ | "Thank you" ❌ | ~1,100 ms |
+| Parakeet, no VAD | nothing ✅ | "Thank you" ❌ | ~110–130 ms |
+| **whisper.cpp `small` + VAD (shipped)** | **nothing ✅** | **nothing ✅** | **~2 ms** |
+| whisper.cpp turbo + VAD | nothing ✅ | nothing ✅ | ~3 ms |
+
+- **The fix:** with the silero VAD in front, a silent press returns nothing in a few milliseconds, because Whisper never runs. Speech clips gained no measurable latency from it.
+- **Not a Whisper-only problem:** Parakeet is often described as not hallucinating the way Whisper does. It passed on digital silence but produced "Thank you" from real room noise. It wasn't retested with the VAD, because the VAD gate was only added to the whisper.cpp provider. Parakeet would need the same gate before it could be a safe default.
 
 ## Live preview cost
 
@@ -109,6 +138,19 @@ A later change shows the transcript live while the key is held, by re-running wh
 ## Dead end: shrinking the audio window
 
 whisper.cpp's `audio_ctx` setting shrinks the 30-second window to fit the clip, which in theory removes the padding cost. With `large-v3-turbo` it produced garbage instead: word error rate jumped from 1.7% to 74%, with repetition loops like "of the of the of the…". One run got stuck long enough to hit a one-hour timeout. The option was removed.
+
+## Considered but not benchmarked
+
+These came up while choosing an engine but were **not measured**, so there are no numbers for them here. The notes are reasoning, not results.
+
+| Option | What it is | Why it wasn't tested |
+|---|---|---|
+| MLX Whisper (`mlx-whisper`) | The same Whisper models on the Apple GPU through Apple's MLX library | Likely similar speed to whisper.cpp, since both run Whisper on the GPU. whisper.cpp was chosen for its maturity and ready-made quantized models. |
+| whisper.cpp + Core ML | Runs Whisper's encoder on the Neural Engine instead of the GPU | The pywhispercpp wheel is built without Core ML (its system info reports `COREML = 0`). It would need a custom build plus a converted encoder model. |
+| Moonshine | A small, fast model built for short on-device clips; it doesn't pad to a 30 s window | English-focused, and reported to be less accurate on long dictation. whisper.cpp `small` was already fast enough. |
+| sherpa-onnx streaming Zipformer | A true streaming model with very low CPU use | Noticeably less accurate. Its main draw was live text, which the live preview now provides with Whisper. |
+| Deepgram (cloud) | Already a supported provider (`nova-2`), with a live streaming mode | Latency depends on the network, and the audio leaves the machine. Out of scope for a local-engine comparison. |
+| Streaming Whisper wrappers (whisper_streaming, WhisperLive) | Re-run Whisper on a sliding window to fake streaming | Rejected on design grounds: repeated compute and text that revises itself. The live preview uses the same re-run idea, but only for display. |
 
 ## Caveats
 
