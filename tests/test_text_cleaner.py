@@ -77,3 +77,11 @@ def test_realistic_claude_response():
     assert "src/auth/handler.py" not in result
     assert "auth handler" in result
     assert "JWT token" in result
+
+
+def test_clean_transcript_drops_non_speech_tags():
+    from claude_voice.text_cleaner import clean_transcript
+    assert clean_transcript("[BLANK_AUDIO]") == ""
+    assert clean_transcript("run the tests [BLANK_AUDIO]") == "run the tests"
+    # Lowercase brackets are real dictated text, not whisper.cpp tags.
+    assert clean_transcript("index [i] is wrong") == "index [i] is wrong"

@@ -272,3 +272,57 @@ def test_verbatim_only_matches_standalone_word(tmp_path, mocker):
 
     injector.assert_called_once_with("please summarize verbatim")
     assert not flag_path.exists()
+
+
+def test_make_stt_selects_optional_local_backends():
+    from claude_voice.config import Config, STTConfig
+    from claude_voice.daemon import _make_stt
+    from claude_voice.stt.parakeet import ParakeetProvider
+    from claude_voice.stt.whisper_cpp import WhisperCppProvider
+
+    # Constructing providers is lazy (no model load), so this stays fast.
+    assert isinstance(_make_stt(Config(stt=STTConfig(provider="whisper_cpp")), {}), WhisperCppProvider)
+    assert isinstance(_make_stt(Config(stt=STTConfig(provider="parakeet")), {}), ParakeetProvider)
+
+
+def test_make_stt_falls_back_when_whisper_cpp_missing(mocker):
+    from claude_voice.config import Config
+    from claude_voice.daemon import _make_stt
+    from claude_voice.stt.whisper_local import WhisperLocalProvider
+
+    mocker.patch("claude_voice.daemon.importlib.util.find_spec", return_value=None)
+    assert isinstance(_make_stt(Config(), {}), WhisperLocalProvider)
+
+
+def _run_redirect_in_subprocess(log_path, stderr):
+    # dup2 rewires the process's real stdout/stderr, so exercise it in a
+    # child rather than hijacking pytest's own output.
+    import subprocess, sys
+    code = (
+        "import sys; from pathlib import Path;"
+        "from claude_voice.daemon import _redirect_output_to_log;"
+        f"_redirect_output_to_log(Path({str(log_path)!r}));"
+        "print('[daemon] hello', file=sys.stderr); print('out line')"
+    )
+    return subprocess.run([sys.executable, "-c", code], stderr=stderr, stdout=stderr,
+                          stdin=subprocess.DEVNULL, timeout=60)
+
+
+def test_output_goes_to_log_when_started_without_terminal(tmp_path):
+    import subprocess
+    log = tmp_path / "logs" / "daemon.log"
+    _run_redirect_in_subprocess(log, subprocess.DEVNULL)
+    text = log.read_text()
+    assert "--- started" in text
+    assert "[daemon] hello" in text
+    assert "out line" in text
+
+
+def test_oversized_log_is_rotated(tmp_path):
+    import subprocess
+    from claude_voice.daemon import _LOG_MAX_BYTES
+    log = tmp_path / "daemon.log"
+    log.write_bytes(b"x" * (_LOG_MAX_BYTES + 1))
+    _run_redirect_in_subprocess(log, subprocess.DEVNULL)
+    assert (tmp_path / "daemon.log.1").stat().st_size == _LOG_MAX_BYTES + 1
+    assert "[daemon] hello" in log.read_text()

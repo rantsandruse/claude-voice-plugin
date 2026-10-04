@@ -3,11 +3,16 @@ hotkey:
   replay: "cmd+shift+r"       # optional; CLI still works without this
 
 stt:
-  provider: "whisper_local"   # whisper_local (default, offline) | deepgram (cloud, needs DEEPGRAM_API_KEY)
+  provider: "whisper_cpp"     # whisper_cpp (default, offline, GPU) | whisper_local (offline, CPU) | parakeet (offline, optional extra) | deepgram (cloud, needs DEEPGRAM_API_KEY)
   whisper_local:
     model: "small"            # tiny | base | small | medium | large-v3
     device: "auto"            # auto | cpu | cuda | mps
     language: "en"
+  whisper_cpp:                # Whisper on the Apple GPU via Metal; ~5x faster than whisper_local
+    model: "small"            # tiny | base | small | medium | large-v3-turbo | …-q5_0 quantized variants
+    language: "en"
+  parakeet:                   # pip install 'claude-voice[parakeet]' — Apple Silicon only (MLX)
+    model: "mlx-community/parakeet-tdt-0.6b-v3"
   deepgram:
     model: "nova-2"
 

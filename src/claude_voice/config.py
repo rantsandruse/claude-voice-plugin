@@ -42,14 +42,30 @@ class WhisperLocalConfig:
 
 
 @dataclass(frozen=True)
+class WhisperCppConfig:
+    # Any name pywhispercpp knows (downloaded on first use), e.g. small,
+    # large-v3-turbo-q5_0. small matched large-v3-turbo's accuracy on PTT
+    # commands in scripts/bench_stt.py at a quarter of the latency.
+    model: str = "small"
+    language: str = "en"
+
+
+@dataclass(frozen=True)
+class ParakeetConfig:
+    model: str = "mlx-community/parakeet-tdt-0.6b-v3"
+
+
+@dataclass(frozen=True)
 class DeepgramConfig:
     model: str = "nova-2"
 
 
 @dataclass(frozen=True)
 class STTConfig:
-    provider: str = "whisper_local"
+    provider: str = "whisper_cpp"
     whisper_local: WhisperLocalConfig = field(default_factory=WhisperLocalConfig)
+    whisper_cpp: WhisperCppConfig = field(default_factory=WhisperCppConfig)
+    parakeet: ParakeetConfig = field(default_factory=ParakeetConfig)
     deepgram: DeepgramConfig = field(default_factory=DeepgramConfig)
 
 

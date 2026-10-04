@@ -7,8 +7,9 @@ from claude_voice.config import load_config, secrets, Config
 def test_load_config_missing_file_returns_defaults(tmp_path):
     cfg = load_config(tmp_path / "missing.yaml")
     assert cfg.hotkey.ptt == "alt_r"
-    assert cfg.stt.provider == "whisper_local"
+    assert cfg.stt.provider == "whisper_cpp"
     assert cfg.stt.whisper_local.model == "small"
+    assert cfg.stt.whisper_cpp.model == "small"
     assert cfg.tts.enabled is True
     assert cfg.tts.provider == "elevenlabs"
     assert cfg.tts.mode == "summary"
