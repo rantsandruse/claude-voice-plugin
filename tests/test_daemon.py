@@ -391,3 +391,10 @@ def test_new_turn_allows_same_text_again():
     core.handle_new_turn({})
     core.handle_speak(dict(msg, response_id="m2"))
     assert playback.speak.call_count == 2
+
+
+def test_new_turn_clears_queued_speech():
+    core, _, _, _, playback, _, _ = _mk_core()
+    core.handle_new_turn({})
+    playback.clear_queue.assert_called_once()
+    playback.interrupt.assert_not_called()

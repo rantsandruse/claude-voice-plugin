@@ -130,6 +130,11 @@ class PlaybackController:
         except Exception:
             pass
 
+    def clear_queue(self) -> None:
+        """Drop waiting utterances but let the current one finish."""
+        with self._lock:
+            self._queue.clear()
+
     def is_playing(self) -> bool:
         with self._lock:
             return self._busy_locked() or bool(self._queue)

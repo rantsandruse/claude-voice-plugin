@@ -258,10 +258,12 @@ class DaemonCore:
             }
 
     def handle_new_turn(self, _msg: dict) -> dict:
-        """A prompt was submitted (typed or voice): text spoken during the
-        previous turn may legitimately be spoken again."""
+        """A prompt was submitted (typed or voice). Drop the previous turn's
+        queued speech (the current sentence finishes), and let text spoken
+        during that turn be spoken again."""
         with self._lock:
             self._spoken_source_keys.clear()
+        self._playback.clear_queue()
         return {"ok": True}
 
     def handle_speak(self, msg: dict) -> dict:

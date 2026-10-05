@@ -216,3 +216,17 @@ def test_interrupt_waits_for_clean_terminate():
     p.interrupt()
     handle.terminate.assert_called_once()
     handle.kill.assert_not_called()
+
+
+def test_clear_queue_drops_waiting_but_finishes_current():
+    h1, h2 = _proc(), _proc()
+    provider = _provider(h1, h2)
+    p = PlaybackController(provider)
+    p.speak("current", "id1")
+    p.speak("stale", "id2")
+    p.clear_queue()
+    h1.terminate.assert_not_called()  # current sentence keeps playing
+    h1._mock_wraps.finish()
+    time.sleep(0.05)
+    assert _spoken(provider) == ["current"]
+    assert not p.is_playing()
