@@ -113,6 +113,9 @@ def main() -> int:
     if event == "UserPromptSubmit":
         if config.feedback.sounds:
             _play_tick(TICK_USERPROMPTSUBMIT)
+        # New turn: let the daemon forget what it spoke last turn. Best-effort;
+        # an offline daemon just returns None.
+        send_message({"op": "new_turn"})
         return 0
 
     # B: A tool is about to run. Tick as a heartbeat, then fall through to
@@ -158,8 +161,15 @@ def main() -> int:
     # our processing — see DaemonCore.handle_speak. Failing to query
     # (daemon offline) just means we omit the stamp and the daemon plays
     # unconditionally, matching the old behavior.
-    gen_reply = send_message({"op": "generation"})
+    # Fingerprint the original text, not what we end up speaking: summaries
+    # of the same text differ on every call, so they can't be deduped.
+    source_key = hashlib.sha1(cleaned.encode("utf-8", errors="replace")).hexdigest()[:16]
+    gen_reply = send_message({"op": "generation", "source_key": source_key})
     generation = gen_reply.get("generation") if isinstance(gen_reply, dict) else None
+    if isinstance(gen_reply, dict) and gen_reply.get("spoken"):
+        # Already spoken this turn (PreToolUse re-fires per tool call with the
+        # same text). Skip before the Haiku call, which PreToolUse blocks on.
+        return 0
 
     secrets = read_secrets()
 
@@ -177,6 +187,7 @@ def main() -> int:
         "op": "speak",
         "text": text,
         "response_id": msg.id,
+        "source_key": source_key,
     }
     if isinstance(generation, int):
         speak_msg["generation"] = generation

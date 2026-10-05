@@ -358,3 +358,36 @@ def test_preview_not_started_when_recorder_fails():
     recorder.start.side_effect = RuntimeError("mic gone")
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)
     preview.start.assert_not_called()
+
+
+def test_rewordings_of_same_source_text_are_spoken_once():
+    """The reported bug: one response, summarized differently per PreToolUse,
+    was spoken five times, each cutting off the last."""
+    core, _, _, _, playback, _, _ = _mk_core()
+    for wording in ["first wording", "second wording", "third wording"]:
+        core.handle_speak({"op": "speak", "text": wording, "response_id": "m1", "source_key": "abc"})
+    assert playback.speak.call_count == 1
+
+
+def test_out_of_order_repeat_of_earlier_text_is_dropped():
+    core, _, _, _, playback, _, _ = _mk_core()
+    for key in ["a", "b", "a"]:
+        core.handle_speak({"op": "speak", "text": f"text {key}", "response_id": key, "source_key": key})
+    assert [c.args[0] for c in playback.speak.call_args_list] == ["text a", "text b"]
+
+
+def test_generation_reports_whether_source_text_was_spoken():
+    core, *_ = _mk_core()
+    assert core.handle_generation({"source_key": "abc"})["spoken"] is False
+    core.handle_speak({"op": "speak", "text": "hi", "response_id": "m1", "source_key": "abc"})
+    assert core.handle_generation({"source_key": "abc"})["spoken"] is True
+    assert core.handle_generation({})["spoken"] is False
+
+
+def test_new_turn_allows_same_text_again():
+    core, _, _, _, playback, _, _ = _mk_core()
+    msg = {"op": "speak", "text": "Done.", "response_id": "m1", "source_key": "abc"}
+    core.handle_speak(msg)
+    core.handle_new_turn({})
+    core.handle_speak(dict(msg, response_id="m2"))
+    assert playback.speak.call_count == 2

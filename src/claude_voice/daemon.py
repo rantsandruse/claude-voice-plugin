@@ -76,6 +76,11 @@ def _text_key(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
+# Per-turn memory of spoken source texts; a turn rarely has more than a
+# handful of distinct assistant text blocks.
+_MAX_SPOKEN_KEYS = 64
+
+
 class DaemonCore:
     """Non-UI wiring; VoiceDaemon adds the menu-bar shell."""
     def __init__(
@@ -112,6 +117,12 @@ class DaemonCore:
         # user has already moved to a new turn while the hook was in flight;
         # we drop it rather than speak the prior turn's response late.
         self._current_generation: int = 0
+        # Fingerprints of the *original* (pre-summary) text already spoken
+        # this turn. PreToolUse fires once per tool call and re-sends the same
+        # assistant text each time; when that text is summarized, Haiku words
+        # it differently on every call, so deduping on the spoken text let
+        # each rewording through and interrupt the last. Cleared on new_turn.
+        self._spoken_source_keys: list[str] = []
         self._busy = False
         self._lock = threading.Lock()
 
@@ -237,8 +248,21 @@ class DaemonCore:
         """Return the current turn generation. Hooks call this at start so
         their subsequent speak can be tagged with the generation they belong
         to — letting the daemon drop late-arriving speaks from prior turns."""
+        source_key = _msg.get("source_key")
         with self._lock:
-            return {"ok": True, "generation": self._current_generation}
+            return {
+                "ok": True,
+                "generation": self._current_generation,
+                # Lets the hook skip a Haiku call for text already spoken.
+                "spoken": bool(source_key) and source_key in self._spoken_source_keys,
+            }
+
+    def handle_new_turn(self, _msg: dict) -> dict:
+        """A prompt was submitted (typed or voice): text spoken during the
+        previous turn may legitimately be spoken again."""
+        with self._lock:
+            self._spoken_source_keys.clear()
+        return {"ok": True}
 
     def handle_speak(self, msg: dict) -> dict:
         if not self._config.tts.enabled:
@@ -249,6 +273,7 @@ class DaemonCore:
         if not text:
             return {"ok": True, "skipped": "empty"}
         text_key = _text_key(text)
+        source_key = msg.get("source_key")
         with self._lock:
             # Stale-turn drop: hook snapshotted the generation before doing
             # blocking work (summarize / IPC). If the user has since pressed
@@ -266,11 +291,18 @@ class DaemonCore:
                     file=sys.stderr,
                 )
                 return {"ok": True, "skipped": "stale generation"}
-            # Dedup on the (id, text) pair: same id + same text = already
-            # spoken. If the text changed for the same id (e.g. Stop reads
-            # a longer version, or resummarization produces a new string),
-            # treat it as a new utterance and speak it.
-            if (
+            if source_key:
+                if source_key in self._spoken_source_keys:
+                    print(
+                        f"[daemon] drop repeat: response_id={response_id} source_key={source_key}",
+                        file=sys.stderr,
+                    )
+                    return {"ok": True, "skipped": "duplicate"}
+                self._spoken_source_keys.append(source_key)
+                del self._spoken_source_keys[:-_MAX_SPOKEN_KEYS]
+            # Fallback for hooks that predate source_key: dedup on the
+            # (id, text) pair: same id + same text = already spoken.
+            elif (
                 response_id
                 and response_id == self._last_spoken_response_id
                 and text_key == self._last_spoken_text_key
@@ -379,6 +411,7 @@ class VoiceDaemon(rumps.App):
         handlers["status"] = self._core.handle_status
         handlers["interrupt"] = self._core.handle_interrupt
         handlers["generation"] = self._core.handle_generation
+        handlers["new_turn"] = self._core.handle_new_turn
 
         def _quit_handler(_m: dict) -> dict:
             rumps.quit_application()
