@@ -141,7 +141,8 @@ def test_userpromptsubmit_plays_tick_and_skips_speak(mocker):
     mocker.patch("claude_voice.hook.load_config", return_value=Config())
     _run_with_stdin({"hook_event_name": "UserPromptSubmit"}, mocker)
     tick.assert_called_once_with("Ping")
-    send.assert_not_called()
+    # Only the turn reset goes out; nothing is spoken.
+    assert [c.args[0]["op"] for c in send.call_args_list] == ["new_turn"]
 
 
 def test_userpromptsubmit_respects_sounds_off(mocker):
@@ -378,3 +379,46 @@ def test_daemon_offline_writes_log(tmp_path, mocker):
     )
     assert log_path.exists()
     assert "daemon offline" in log_path.read_text()
+
+
+def test_already_spoken_text_skips_summarize_and_speak(tmp_path, mocker):
+    """PreToolUse re-fires per tool call with the same assistant text. Once
+    the daemon reports it spoken, the hook must not re-summarize or resend."""
+    long_text = "A long explanation that will be summarized. " * 10
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(json.dumps({
+        "type": "assistant",
+        "message": {"id": "m1", "role": "assistant",
+                    "content": [{"type": "text", "text": long_text}]},
+    }) + "\n")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": "k"})
+    summarize = mocker.patch("claude_voice.hook.summarize", return_value="summary")
+    send = mocker.patch(
+        "claude_voice.hook.send_message",
+        return_value={"ok": True, "generation": 0, "spoken": True},
+    )
+    _run_with_stdin(_stop_payload(jsonl), mocker)
+    summarize.assert_not_called()
+    assert [c.args[0]["op"] for c in send.call_args_list] == ["generation"]
+
+
+def test_source_key_is_from_original_text_not_summary(tmp_path, mocker):
+    """Two runs over the same text that summarize differently must carry the
+    same source_key, so the daemon can recognise the repeat."""
+    long_text = "A long explanation that will be summarized. " * 10
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(json.dumps({
+        "type": "assistant",
+        "message": {"id": "m1", "role": "assistant",
+                    "content": [{"type": "text", "text": long_text}]},
+    }) + "\n")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": "k"})
+    mocker.patch("claude_voice.hook.summarize", side_effect=["first wording", "second wording"])
+    send = mocker.patch("claude_voice.hook.send_message", return_value={"ok": True, "generation": 0})
+    _run_with_stdin(_stop_payload(jsonl), mocker)
+    _run_with_stdin(_stop_payload(jsonl), mocker)
+    speaks = [c.args[0] for c in send.call_args_list if c.args[0]["op"] == "speak"]
+    assert [m["text"] for m in speaks] == ["first wording", "second wording"]
+    assert speaks[0]["source_key"] == speaks[1]["source_key"]
