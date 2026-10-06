@@ -42,7 +42,7 @@ class TapToTalkConfig:
     # key longer than max_tap_ms is ordinary push-to-talk.
     enabled: bool = True
     max_tap_ms: int = 300
-    end_silence_ms: int = 1200
+    end_silence_ms: int = 2000
     # Give up if no speech starts within this long (e.g. an accidental tap).
     no_speech_timeout_s: float = 5.0
     # Hard cap, for noise that never lets the silence detector fire.

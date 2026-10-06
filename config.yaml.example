@@ -5,7 +5,7 @@ hotkey:
 tap_to_talk:                  # tap the PTT key instead of holding it: records until you stop talking
   enabled: true
   max_tap_ms: 300             # releases faster than this count as a tap; longer holds are push-to-talk
-  end_silence_ms: 1200        # stop after this much silence; raise it if it cuts you off mid-thought
+  end_silence_ms: 2000        # stop after this much silence; raise it if it cuts you off mid-thought
   no_speech_timeout_s: 5      # cancel if you don't start speaking within this long
   max_duration_s: 60          # hard stop, e.g. in a noisy room
 
