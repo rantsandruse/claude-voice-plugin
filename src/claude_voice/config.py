@@ -35,6 +35,21 @@ class HotkeyConfig:
 
 
 @dataclass(frozen=True)
+class TapToTalkConfig:
+    # Tap the PTT key (release within max_tap_ms) to record hands-free:
+    # recording continues after release and stops on its own once you've
+    # been quiet for end_silence_ms. Tap again to stop early. Holding the
+    # key longer than max_tap_ms is ordinary push-to-talk.
+    enabled: bool = True
+    max_tap_ms: int = 300
+    end_silence_ms: int = 1200
+    # Give up if no speech starts within this long (e.g. an accidental tap).
+    no_speech_timeout_s: float = 5.0
+    # Hard cap, for noise that never lets the silence detector fire.
+    max_duration_s: float = 60.0
+
+
+@dataclass(frozen=True)
 class WhisperLocalConfig:
     model: str = "small"
     device: str = "auto"
@@ -128,6 +143,7 @@ class LoggingConfig:
 @dataclass(frozen=True)
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
+    tap_to_talk: TapToTalkConfig = field(default_factory=TapToTalkConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)

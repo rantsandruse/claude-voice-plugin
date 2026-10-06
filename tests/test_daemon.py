@@ -398,3 +398,81 @@ def test_new_turn_clears_queued_speech():
     core.handle_new_turn({})
     playback.clear_queue.assert_called_once()
     playback.interrupt.assert_not_called()
+
+
+class FakeEndpoint:
+    def __init__(self, on_end):
+        self.on_end = on_end
+        self.started = self.stopped = False
+    def start(self): self.started = True
+    def stop(self): self.stopped = True
+
+
+def _mk_tap_core():
+    core, recorder, _, stt, playback, _, injector = _mk_core()
+    endpoints = []
+    def make(on_end):
+        endpoints.append(FakeEndpoint(on_end)); return endpoints[-1]
+    core._make_endpoint = make
+    recorder.stop.return_value = _fake_audio(2.0)
+    stt.transcribe_audio.return_value = "run the tests"
+    return core, recorder, injector, endpoints
+
+
+def test_tap_keeps_recording_until_silence():
+    core, recorder, injector, endpoints = _mk_tap_core()
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    recorder.stop.assert_not_called()  # still listening after the tap
+    assert endpoints[0].started
+    endpoints[0].on_end("silence")
+    recorder.stop.assert_called_once()
+    injector.assert_called_once_with("run the tests")
+
+
+def test_second_tap_stops_early_and_its_release_is_ignored():
+    core, recorder, injector, endpoints = _mk_tap_core()
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)  # second tap
+    assert endpoints[0].stopped
+    recorder.stop.assert_called_once()
+    injector.assert_called_once()
+    core.handle_hotkey(HotkeyEvent.TAP_UP)  # its release: must not start anything
+    assert len(endpoints) == 1
+    assert recorder.start.call_count == 1
+
+
+def test_detector_firing_after_second_tap_is_ignored():
+    core, recorder, injector, endpoints = _mk_tap_core()
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    endpoints[0].on_end("silence")  # lost the race; must be a no-op
+    recorder.stop.assert_called_once()
+    injector.assert_called_once()
+
+
+def test_holding_the_key_is_still_push_to_talk():
+    core, recorder, injector, endpoints = _mk_tap_core()
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+    assert endpoints == []
+    injector.assert_called_once_with("run the tests")
+
+
+def test_tap_with_tap_to_talk_disabled_finishes_immediately():
+    core, recorder, _, stt, _, _, injector = _mk_core()  # no make_endpoint
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "hi"
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    recorder.stop.assert_called_once()
+
+
+def test_tap_after_failed_recorder_start_does_not_listen():
+    core, recorder, injector, endpoints = _mk_tap_core()
+    recorder.start.side_effect = RuntimeError("mic gone")
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    assert endpoints == []

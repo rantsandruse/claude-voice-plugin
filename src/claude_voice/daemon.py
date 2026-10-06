@@ -14,6 +14,7 @@ from PyObjCTools.AppHelper import callAfter
 
 from .config import Config, CONFIG_DIR, VERBATIM_FLAG_PATH, load_config, load_dotenv_if_present, secrets as read_secrets
 from .hotkey import HotkeyListener, HotkeyEvent
+from .endpoint import EndpointDetector
 from .preview import LivePreview
 from .recorder import Recorder
 from .playback import PlaybackController
@@ -95,6 +96,7 @@ class DaemonCore:
         on_state_change: Callable[[str], None],
         dispatch: Callable[[Callable, tuple], None] | None = None,
         preview: LivePreview | None = None,
+        make_endpoint: Callable[[Callable[[str], None]], EndpointDetector] | None = None,
     ):
         self._config = config
         self._recorder = recorder
@@ -106,6 +108,17 @@ class DaemonCore:
         self._on_state_change = on_state_change
         self._dispatch = dispatch or _default_dispatch
         self._preview = preview
+        # Tap-to-talk: builds an end-of-speech detector for a hands-free
+        # recording. None disables tap-to-talk.
+        self._make_endpoint = make_endpoint
+        self._endpoint: EndpointDetector | None = None
+        self._recording = False
+        # True while a tapped recording is waiting for silence. Whoever flips
+        # it back (second tap or the detector) owns ending the recording.
+        self._handsfree = False
+        # The second tap that stops a hands-free recording also produces a
+        # release event; this swallows it.
+        self._swallow_release = False
         self._last_spoken_response_id: str | None = None
         # Text fingerprint of the last spoken text. Used together with
         # response_id so a same-id message whose text has grown (streaming
@@ -137,6 +150,16 @@ class DaemonCore:
 
     def handle_hotkey(self, event: HotkeyEvent) -> None:
         if event == HotkeyEvent.PTT_DOWN:
+            with self._lock:
+                stop_handsfree = self._handsfree
+                if stop_handsfree:
+                    self._handsfree = False
+                    self._swallow_release = True
+            if stop_handsfree:
+                # Second tap: stop listening now instead of waiting for silence.
+                self._stop_endpoint()
+                self._finish_recording()
+                return
             if self._playback.is_playing():
                 self._playback.interrupt()
             # If Recorder.start() throws (PortAudio internal state gone stale,
@@ -149,33 +172,68 @@ class DaemonCore:
                 self._on_state_change("error")
                 self._play_tick("busy")
                 return
+            self._recording = True
             self._on_state_change("recording")
             self._play_tick("start")
             if self._preview is not None:
                 self._preview.start()
-        elif event == HotkeyEvent.PTT_UP:
-            # Stop the preview first: it cancels any in-flight preview run so
-            # the final transcription doesn't wait behind it.
-            if self._preview is not None:
-                self._preview.stop()
+        elif event in (HotkeyEvent.PTT_UP, HotkeyEvent.TAP_UP):
             with self._lock:
-                if self._busy:
-                    self._play_tick("busy")
+                if self._swallow_release:
+                    self._swallow_release = False
                     return
-            try:
-                audio_data = self._recorder.stop()
-            except Exception as e:
-                print(f"[daemon] recorder stop failed: {e}", file=sys.stderr)
-                self._on_state_change("error")
+            if event == HotkeyEvent.TAP_UP and self._make_endpoint is not None:
+                if self._recording:
+                    self._start_handsfree()
+                return
+            self._finish_recording()
+
+    def _start_handsfree(self) -> None:
+        """Keep recording after a tap; the detector ends it on silence."""
+        with self._lock:
+            self._handsfree = True
+        self._endpoint = self._make_endpoint(self._on_endpoint)
+        self._endpoint.start()
+
+    def _on_endpoint(self, reason: str) -> None:
+        with self._lock:
+            if not self._handsfree:
+                return  # a second tap already ended it
+            self._handsfree = False
+        print(f"[daemon] hands-free recording ended: {reason}", file=sys.stderr)
+        self._finish_recording()
+
+    def _stop_endpoint(self) -> None:
+        if self._endpoint is not None:
+            self._endpoint.stop()
+            self._endpoint = None
+
+    def _finish_recording(self) -> None:
+        """Stop recording, then transcribe and paste. Shared by key release,
+        a second tap, and the end-of-speech detector."""
+        self._recording = False
+        # Stop the preview first: it cancels any in-flight preview run so
+        # the final transcription doesn't wait behind it.
+        if self._preview is not None:
+            self._preview.stop()
+        with self._lock:
+            if self._busy:
                 self._play_tick("busy")
                 return
-            if audio_data is None:
-                self._on_state_change("idle")
-                return
-            with self._lock:
-                self._busy = True
-            self._on_state_change("transcribing")
-            self._dispatch(self.run_transcribe_job, (audio_data,))
+        try:
+            audio_data = self._recorder.stop()
+        except Exception as e:
+            print(f"[daemon] recorder stop failed: {e}", file=sys.stderr)
+            self._on_state_change("error")
+            self._play_tick("busy")
+            return
+        if audio_data is None:
+            self._on_state_change("idle")
+            return
+        with self._lock:
+            self._busy = True
+        self._on_state_change("transcribing")
+        self._dispatch(self.run_transcribe_job, (audio_data,))
 
     def run_transcribe_job(self, audio_data: tuple) -> None:
         audio, sample_rate = audio_data
@@ -380,7 +438,22 @@ class VoiceDaemon(rumps.App):
             max_duration_seconds=float(config.tts.max_duration),
         )
         recorder = Recorder()
-        hotkey_listener = HotkeyListener(config.hotkey, on_event=self._on_hotkey)
+        tap = config.tap_to_talk
+        hotkey_listener = HotkeyListener(
+            config.hotkey,
+            on_event=self._on_hotkey,
+            max_tap_s=tap.max_tap_ms / 1000 if tap.enabled else None,
+        )
+        make_endpoint = None
+        if tap.enabled:
+            def make_endpoint(on_end):
+                return EndpointDetector(
+                    recorder.snapshot,
+                    on_end,
+                    silence_s=tap.end_silence_ms / 1000,
+                    no_speech_timeout_s=tap.no_speech_timeout_s,
+                    max_s=tap.max_duration_s,
+                )
 
         preview = None
         if config.feedback.live_preview and hasattr(stt, "transcribe_preview"):
@@ -407,6 +480,7 @@ class VoiceDaemon(rumps.App):
             inject_fn=lambda text: inject(text, auto_submit=config.inject.auto_submit),
             on_state_change=self._on_state_change,
             preview=preview,
+            make_endpoint=make_endpoint,
         )
         handlers["speak"] = self._core.handle_speak
         handlers["replay"] = self._core.handle_replay

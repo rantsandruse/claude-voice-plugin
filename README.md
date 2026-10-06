@@ -3,6 +3,7 @@
 A macOS voice plugin for Claude Code — talk to Claude, hear it back.
 
 - **Push-to-talk STT** — hold a hotkey, speak, release. The transcript pastes into your focused terminal.
+- **Tap-to-talk** — or tap the hotkey once and just speak; recording stops on its own when you go quiet.
 - **Spoken responses** — Claude's answer is read aloud when the turn ends. Configurable summary or verbatim.
 - **Ambient audio feedback** — ticks and interim narration through Claude Code's `UserPromptSubmit` / `PreToolUse` / `Stop` hooks so you can follow along without looking at the screen.
 
@@ -26,6 +27,7 @@ claude-voice start
 The installer creates `~/.config/claude-voice/` and registers three hooks in `~/.claude/settings.json` (`Stop`, `PreToolUse`, `UserPromptSubmit`). Then, in any focused text field:
 
 1. Hold **Right Option**, speak, release. The transcript pastes and auto-submits.
+   Or tap it once, speak, and pause: it stops after ~1.2 s of silence (tap again to stop sooner).
 2. Wait for Claude's answer — you'll hear a Ping when it starts thinking, a Purr for each tool it runs, and a spoken summary when it's done.
 
 **One-time permissions.** macOS will prompt for **Microphone** access on your first PTT press. Grant **Accessibility** to Terminal (or iTerm) *and* your Python interpreter before the first PTT — full details in [Grant macOS Permissions](#grant-macos-permissions-required) below.
@@ -57,6 +59,7 @@ Config lives at `~/.config/claude-voice/config.yaml` — see [`config.yaml.examp
 Keys you'll actually touch:
 
 - `hotkey.ptt` — default `alt_r` (Right Option). Also: `alt_l`, `cmd_r`, `f1..f12`.
+- `tap_to_talk` — on by default. A press shorter than `max_tap_ms` (300) starts hands-free recording that ends after `end_silence_ms` (1200) of silence. Raise `end_silence_ms` if it cuts you off mid-thought; set `enabled: false` for push-to-talk only.
 - `stt.provider` — `whisper_cpp` (default, offline, GPU), `whisper_local` (offline, CPU; also the automatic fallback), `parakeet` (offline, `pip install -e '.[parakeet]'`), or `deepgram` (cloud). Compare them on your own voice with `scripts/bench_stt.py`.
 - `tts.provider` — `say` (default, offline, macOS built-in) or `elevenlabs` (cloud).
 - `tts.mode` — `summary` (default, Haiku condenses) or `prose` (verbatim).
