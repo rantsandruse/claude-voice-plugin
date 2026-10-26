@@ -61,6 +61,13 @@ def _is_verbatim_command(text: str) -> bool:
     return token == "verbatim"
 
 
+def _is_more_command(text: str) -> bool:
+    """'more' or 'tell me more' as the whole utterance: speak the last reply
+    in full instead of its summary."""
+    token = " ".join(text.strip().lower().rstrip(".,!?").split())
+    return token in ("more", "tell me more")
+
+
 def _set_verbatim_flag() -> None:
     """Touch the one-shot flag file the Stop hook reads."""
     try:
@@ -136,6 +143,8 @@ class DaemonCore:
         # it differently on every call, so deduping on the spoken text let
         # each rewording through and interrupt the last. Cleared on new_turn.
         self._spoken_source_keys: list[str] = []
+        # Unsummarized text of the last reply spoken, for the "more" command.
+        self._last_full_text: str | None = None
         self._busy = False
         self._lock = threading.Lock()
 
@@ -263,6 +272,9 @@ class DaemonCore:
                 self._play_tick("verbatim")
                 self._on_state_change("idle")
                 return
+            if _is_more_command(text):
+                self._speak_more()
+                return
             # This is the "committed new turn" moment: transcription succeeded,
             # text is non-empty, and it's not a hands-free command. Bump gen
             # here rather than at PTT_UP so brief mic taps and empty audio
@@ -280,6 +292,19 @@ class DaemonCore:
         finally:
             with self._lock:
                 self._busy = False
+
+    def _speak_more(self) -> None:
+        with self._lock:
+            full_text = self._last_full_text
+        if not full_text:
+            self._play_tick("busy")
+            self._on_state_change("idle")
+            return
+        self._play_tick("verbatim")
+        # Explicit request, like replay: play now rather than queue.
+        self._playback.interrupt()
+        self._playback.speak(full_text, "more")
+        self._on_state_change("playing")
 
     def _play_tick(self, kind: str) -> None:
         if not self._config.feedback.sounds:
@@ -374,6 +399,7 @@ class DaemonCore:
                 return {"ok": True, "skipped": "duplicate"}
             self._last_spoken_response_id = response_id
             self._last_spoken_text_key = text_key
+            self._last_full_text = msg.get("full_text") or text
         self._playback.speak(text, response_id)
         self._on_state_change("playing")
         return {"ok": True}

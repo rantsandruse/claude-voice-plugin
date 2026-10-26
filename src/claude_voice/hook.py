@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -42,8 +43,46 @@ def _log(msg: str) -> None:
         pass
 
 
+# What a listener can't afford to lose: anything they have to choose, do or
+# answer. Reasoning and background are what get condensed.
+SUMMARY_PROMPT = (
+    "Rewrite this reply from a coding assistant so it can be read aloud. "
+    "The listener can't see the screen.\n"
+    "- Keep every option, fix, step, question and decision. Say how many "
+    "there are, then give each one in one sentence: \"First, ... Second, ...\"\n"
+    "- If the reply ends with a question, end with that question.\n"
+    "- Condense explanations and reasoning to a sentence or two.\n"
+    "- With none of the above, use 1-2 sentences.\n"
+    "- Plain speech only: no markdown, code, symbols or file paths. "
+    "Say a file by its name, like \"the hook file\".\n\n"
+    "Reply:\n\n"
+)
+
+# A reply can carry its own spoken version as a final "Spoken:" section
+# (opt-in via a CLAUDE.md rule). Matched on its own line, so a mid-sentence
+# "spoken:" doesn't count.
+_SPOKEN_SECTION = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?Spoken:?(?:\*\*)?:?[ \t]*",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def split_spoken_section(text: str) -> tuple[str, str | None]:
+    """Split off a trailing "Spoken:" section. Returns (body, spoken), with
+    spoken None when there's no section or it's empty."""
+    matches = list(_SPOKEN_SECTION.finditer(text))
+    if not matches:
+        return text, None
+    last = matches[-1]
+    spoken = text[last.end():].strip()
+    if not spoken:
+        return text, None
+    return text[:last.start()].rstrip(), spoken
+
+
 def summarize(text: str, api_key: str) -> str:
-    """Condense a long response into 1-2 spoken sentences via Claude Haiku."""
+    """Rewrite a long response for listening via Claude Haiku, keeping
+    options, steps and questions intact."""
     try:
         from anthropic import Anthropic
     except ImportError:
@@ -52,14 +91,8 @@ def summarize(text: str, api_key: str) -> str:
         client = Anthropic(api_key=api_key)
         resp = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Summarize the following in 1-2 short spoken sentences. "
-                    "No markdown, no code, plain speech only:\n\n" + text
-                ),
-            }],
+            max_tokens=500,
+            messages=[{"role": "user", "content": SUMMARY_PROMPT + text}],
         )
         block = resp.content[0]
         return getattr(block, "text", text) or text
@@ -151,7 +184,8 @@ def main() -> int:
     if msg is None:
         return 0
 
-    cleaned = clean_for_tts(msg.content)
+    body, spoken = split_spoken_section(msg.content)
+    cleaned = clean_for_tts(body) or clean_for_tts(spoken or "")
     if not cleaned:
         return 0
 
@@ -178,6 +212,9 @@ def main() -> int:
     # verbatim regardless of mode or thresholds.
     if _consume_verbatim_flag():
         pass
+    elif spoken:
+        # Claude already wrote it for listening; read it as written.
+        text = clean_for_tts(spoken) or cleaned
     elif _should_summarize(cleaned, config):
         api_key = secrets.get("ANTHROPIC_API_KEY")
         if api_key:
@@ -188,6 +225,8 @@ def main() -> int:
         "text": text,
         "response_id": msg.id,
         "source_key": source_key,
+        # The whole reply, for the "more" voice command after a summary.
+        "full_text": cleaned,
     }
     if isinstance(generation, int):
         speak_msg["generation"] = generation

@@ -422,3 +422,46 @@ def test_source_key_is_from_original_text_not_summary(tmp_path, mocker):
     speaks = [c.args[0] for c in send.call_args_list if c.args[0]["op"] == "speak"]
     assert [m["text"] for m in speaks] == ["first wording", "second wording"]
     assert speaks[0]["source_key"] == speaks[1]["source_key"]
+
+
+def test_spoken_section_is_read_as_written_without_summarize(tmp_path, mocker):
+    """A reply ending in a "Spoken:" section is read word for word; Haiku is
+    skipped even for a long reply, and "more" gets the body."""
+    body = "A long on-screen explanation with details. " * 20
+    send = mocker.patch("claude_voice.hook.send_message", return_value={"ok": True})
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": "k"})
+    summarize = mocker.patch("claude_voice.hook.summarize", return_value="summary")
+    _run_with_stdin({
+        "hook_event_name": "Stop",
+        "transcript_path": str(tmp_path / "t.jsonl"),
+        "last_assistant_message": body + "\n\nSpoken: I fixed the bug. Want me to commit?",
+    }, mocker)
+    summarize.assert_not_called()
+    msg = send.call_args.args[0]
+    assert msg["text"] == "I fixed the bug. Want me to commit?"
+    assert "Spoken" not in msg["full_text"]
+    assert msg["full_text"].startswith("A long on-screen explanation")
+
+
+def test_summarized_speak_carries_full_text(tmp_path, mocker):
+    long_text = "A long explanation that will be summarized. " * 10
+    send = mocker.patch("claude_voice.hook.send_message", return_value={"ok": True})
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": "k"})
+    mocker.patch("claude_voice.hook.summarize", return_value="summary")
+    _run_with_stdin({
+        "hook_event_name": "Stop",
+        "transcript_path": str(tmp_path / "t.jsonl"),
+        "last_assistant_message": long_text,
+    }, mocker)
+    msg = send.call_args.args[0]
+    assert msg["text"] == "summary"
+    assert msg["full_text"] == long_text.strip()
+
+
+def test_split_spoken_section_ignores_inline_mention():
+    from claude_voice.hook import split_spoken_section
+    assert split_spoken_section("It was spoken: loudly") == ("It was spoken: loudly", None)
+    assert split_spoken_section("Body\n\n**Spoken:**\nShort.") == ("Body", "Short.")
+    assert split_spoken_section("Body\n\nSpoken:") == ("Body\n\nSpoken:", None)

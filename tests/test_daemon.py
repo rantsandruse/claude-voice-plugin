@@ -476,3 +476,38 @@ def test_tap_after_failed_recorder_start_does_not_listen():
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)
     core.handle_hotkey(HotkeyEvent.TAP_UP)
     assert endpoints == []
+
+
+def test_more_command_speaks_last_full_text_and_skips_inject():
+    core, recorder, _, stt, playback, _, injector = _mk_core()
+    core.handle_speak({"op": "speak", "text": "summary", "response_id": "r1",
+                       "full_text": "the whole reply"})
+    playback.reset_mock()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "Tell me more."
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    playback.speak.assert_called_once_with("the whole reply", "more")
+
+
+def test_more_command_with_nothing_spoken_yet_does_not_inject():
+    core, recorder, _, stt, playback, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "more"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    playback.speak.assert_not_called()
+
+
+def test_sentence_containing_more_still_pastes():
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "add more tests"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_called_once_with("add more tests")

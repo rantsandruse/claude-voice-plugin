@@ -79,11 +79,26 @@ Push-to-talk basics are in the [Quick Start](#quick-start). What follows are the
 
 ### Voice commands
 
-Some utterances are intercepted as commands instead of pasted as prompt text. All are single-word, exact-match (case-insensitive, trailing punctuation ignored) — `"please summarize verbatim"` pastes normally as a prompt.
+Some utterances are intercepted as commands instead of pasted as prompt text. A command only counts when it's the whole utterance (case-insensitive, trailing punctuation ignored) — `"please summarize verbatim"` pastes normally as a prompt.
 
 | Say | Effect |
 |---|---|
 | `verbatim` | One-shot: the very next response is spoken in full, skipping the default Haiku summary. After that response, summary mode resumes automatically. |
+| `more` or `tell me more` | Speaks the last response in full, right away. Use it after a summary when you want the details. |
+
+### Summaries
+
+In summary mode, Haiku rewrites each long response for listening. Options, fixes, steps, questions and decisions are kept and read one by one ("First, … Second, …"); explanations are condensed. Say `more` to hear the full response.
+
+**Let Claude write the spoken version (optional).** If a response ends with a `Spoken:` section, only that section is read, as written, with no Haiku call. To turn this on, add a rule like this to your `~/.claude/CLAUDE.md`:
+
+```markdown
+End every reply with a final line starting "Spoken:" that says the reply for
+someone listening, not reading: no code, symbols or file paths. Keep every
+option, question and decision, one short sentence each.
+```
+
+The section shows up on screen too, so this is opt-in. Responses without it fall back to Haiku.
 
 ### Feedback signals
 
@@ -101,7 +116,7 @@ Some utterances are intercepted as commands instead of pasted as prompt text. Al
 | **Funk** | Busy or error — the daemon couldn't complete what you asked (mic denied, PortAudio wedged, etc.) |
 | **Ping** | Claude Code received your prompt (`UserPromptSubmit` hook) |
 | **Purr** | Claude is invoking a tool (`PreToolUse` hook) — heartbeat during work |
-| **Glass** | Voice command acknowledged — currently only fires for `"verbatim"` |
+| **Glass** | Voice command acknowledged (`"verbatim"`, `"more"`) |
 
 </details>
 
