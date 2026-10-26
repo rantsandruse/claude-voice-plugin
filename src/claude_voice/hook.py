@@ -58,6 +58,15 @@ SUMMARY_PROMPT = (
     "Reply:\n\n"
 )
 
+# Added to Claude's context on each prompt while the daemon is running and
+# tts.spoken_section is on.
+SPOKEN_SECTION_RULE = (
+    "Voice mode is on. End your reply with a final line starting \"Spoken:\" "
+    "that says the reply for someone listening, not reading: no code, symbols "
+    "or file paths. Keep every option, question and decision, one short "
+    "sentence each."
+)
+
 # A reply can carry its own spoken version as a final "Spoken:" section
 # (opt-in via a CLAUDE.md rule). Matched on its own line, so a mid-sentence
 # "spoken:" doesn't count.
@@ -148,7 +157,14 @@ def main() -> int:
             _play_tick(TICK_USERPROMPTSUBMIT)
         # New turn: let the daemon forget what it spoke last turn. Best-effort;
         # an offline daemon just returns None.
-        send_message({"op": "new_turn"})
+        reply = send_message({"op": "new_turn"})
+        # No reply means the daemon is down: nobody is listening, so don't
+        # ask for a spoken line.
+        if reply is not None and config.tts.enabled and config.tts.spoken_section:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": SPOKEN_SECTION_RULE,
+            }}))
         return 0
 
     # B: A tool is about to run. Tick as a heartbeat, then fall through to

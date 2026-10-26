@@ -90,15 +90,7 @@ Some utterances are intercepted as commands instead of pasted as prompt text. A 
 
 In summary mode, Haiku rewrites each long response for listening. Options, fixes, steps, questions and decisions are kept and read one by one ("First, … Second, …"); explanations are condensed. Say `more` to hear the full response.
 
-**Let Claude write the spoken version (optional).** If a response ends with a `Spoken:` section, only that section is read, as written, with no Haiku call. To turn this on, add a rule like this to your `~/.claude/CLAUDE.md`:
-
-```markdown
-End every reply with a final line starting "Spoken:" that says the reply for
-someone listening, not reading: no code, symbols or file paths. Keep every
-option, question and decision, one short sentence each.
-```
-
-The section shows up on screen too, so this is opt-in. Responses without it fall back to Haiku.
+**Let Claude write the spoken version (optional).** Set `tts.spoken_section: true` and, while the daemon is running, each prompt asks Claude to end its reply with a `Spoken:` line. That line is read as written, with no Haiku call, so speech starts sooner. When the daemon is stopped, the request isn't added and replies stay as usual. The line shows on screen too, which is why it's off by default. Replies without it fall back to Haiku.
 
 ### Feedback signals
 

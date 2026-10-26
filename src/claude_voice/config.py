@@ -115,6 +115,10 @@ class TTSConfig:
     # presses. Legitimate summaries are 5-10s; raise if you want long
     # verbatim responses to play in full.
     max_duration: int = 60
+    # Ask Claude to end each reply with a "Spoken:" line, read as written
+    # instead of a Haiku summary. Added to the prompt only while the daemon
+    # is running, so replies stay clean when voice is off.
+    spoken_section: bool = False
     elevenlabs: ElevenLabsConfig = field(default_factory=ElevenLabsConfig)
     say: SayConfig = field(default_factory=SayConfig)
 

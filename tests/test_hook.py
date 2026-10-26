@@ -465,3 +465,29 @@ def test_split_spoken_section_ignores_inline_mention():
     assert split_spoken_section("It was spoken: loudly") == ("It was spoken: loudly", None)
     assert split_spoken_section("Body\n\n**Spoken:**\nShort.") == ("Body", "Short.")
     assert split_spoken_section("Body\n\nSpoken:") == ("Body\n\nSpoken:", None)
+
+
+def _ups_stdout(mocker, cfg, daemon_reply, capsys) -> str:
+    mocker.patch("claude_voice.hook._play_tick")
+    mocker.patch("claude_voice.hook.send_message", return_value=daemon_reply)
+    mocker.patch("claude_voice.hook.load_config", return_value=cfg)
+    _run_with_stdin({"hook_event_name": "UserPromptSubmit"}, mocker)
+    return capsys.readouterr().out
+
+
+def test_userpromptsubmit_adds_spoken_rule_while_daemon_runs(mocker, capsys):
+    from claude_voice.config import TTSConfig
+    from claude_voice.hook import SPOKEN_SECTION_RULE
+    cfg = Config(tts=TTSConfig(spoken_section=True))
+    out = json.loads(_ups_stdout(mocker, cfg, {"ok": True}, capsys))
+    assert out["hookSpecificOutput"]["additionalContext"] == SPOKEN_SECTION_RULE
+
+
+def test_userpromptsubmit_no_spoken_rule_when_daemon_down(mocker, capsys):
+    from claude_voice.config import TTSConfig
+    cfg = Config(tts=TTSConfig(spoken_section=True))
+    assert _ups_stdout(mocker, cfg, None, capsys) == ""
+
+
+def test_userpromptsubmit_no_spoken_rule_by_default(mocker, capsys):
+    assert _ups_stdout(mocker, Config(), {"ok": True}, capsys) == ""

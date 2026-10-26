@@ -30,6 +30,7 @@ tts:
   summary_threshold: 500      # chars; above this always summarize
   min_summarize_chars: 200    # chars; below this always speak verbatim (skips Haiku even in summary mode)
   max_duration: 60            # seconds; hard cap on any TTS subprocess. Prevents wedged audio from blocking future PTT.
+  spoken_section: false       # ask Claude for a "Spoken:" line to read as written (no Haiku call); only while the daemon runs
   elevenlabs:
     voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel — ElevenLabs uses opaque IDs, not names
     model: "eleven_turbo_v2_5"
