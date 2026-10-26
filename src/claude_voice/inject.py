@@ -26,6 +26,17 @@ def _run_osascript(script: str, label: str) -> None:
         )
 
 
+def frontmost_app() -> str | None:
+    """Bundle id of the app in front, e.g. com.apple.Terminal. None if it
+    can't be read."""
+    try:
+        from AppKit import NSWorkspace
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return str(app.bundleIdentifier()) if app is not None else None
+    except Exception:
+        return None
+
+
 def inject(text: str, auto_submit: bool = False) -> None:
     if not text:
         return

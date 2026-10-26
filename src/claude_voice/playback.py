@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections import deque
 import subprocess
 import threading
+from typing import Callable
 import sys
 from .tts.base import TTSProvider
 
@@ -19,10 +20,14 @@ class PlaybackController:
         provider: TTSProvider,
         fallback: TTSProvider | None = None,
         max_duration_seconds: float = 60.0,
+        on_idle: Callable[[], None] | None = None,
     ):
         self._provider = provider
         self._fallback = fallback
         self._max_duration_seconds = max_duration_seconds
+        # Called when the last queued utterance finishes on its own; not
+        # after interrupt(), which means the user cut it off.
+        self._on_idle = on_idle
         self._current: subprocess.Popen | None = None
         # Timer that fires _watchdog_terminate() if the current subprocess
         # is still alive after max_duration_seconds. Cancelled on interrupt.
@@ -93,6 +98,8 @@ class PlaybackController:
                 response_id, text = self._queue.popleft()
                 if self._start_locked(text, response_id):
                     return
+        if self._on_idle is not None:
+            self._on_idle()
 
     def _watchdog_terminate(self, handle: subprocess.Popen) -> None:
         try:

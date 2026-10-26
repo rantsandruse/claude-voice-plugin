@@ -19,7 +19,7 @@ from .preview import LivePreview
 from .recorder import Recorder
 from .playback import PlaybackController
 from .ipc import IPCServer, SOCKET_PATH
-from .inject import inject
+from .inject import frontmost_app, inject
 from .stt.whisper_local import WhisperLocalProvider
 from .stt.deepgram import DeepgramProvider
 from .tts.say import SayProvider
@@ -103,7 +103,8 @@ class DaemonCore:
         on_state_change: Callable[[str], None],
         dispatch: Callable[[Callable, tuple], None] | None = None,
         preview: LivePreview | None = None,
-        make_endpoint: Callable[[Callable[[str], None]], EndpointDetector] | None = None,
+        make_endpoint: Callable[..., EndpointDetector] | None = None,
+        frontmost_fn: Callable[[], str | None] | None = None,
     ):
         self._config = config
         self._recorder = recorder
@@ -145,6 +146,20 @@ class DaemonCore:
         self._spoken_source_keys: list[str] = []
         # Unsummarized text of the last reply spoken, for the "more" command.
         self._last_full_text: str | None = None
+        # Conversation mode (double-tap): after Claude's final spoken reply,
+        # the mic reopens by itself until a reopened mic hears nothing.
+        self._conversation = False
+        # Set when a conversation message is pasted; the final reply to it
+        # is what reopens the mic. Prompts typed or sent from the phone
+        # never set it, so their replies don't open the Mac's mic.
+        self._awaiting_reply = False
+        # The final reply arrived; reopen once its speech finishes.
+        self._reopen_pending = False
+        # App the last conversation message was pasted into. The mic only
+        # reopens if it's still in front, so speech can't land elsewhere.
+        self._conversation_app: str | None = None
+        self._frontmost = frontmost_fn
+        self._recording_started_at = 0.0
         self._busy = False
         self._lock = threading.Lock()
 
@@ -159,11 +174,32 @@ class DaemonCore:
 
     def handle_hotkey(self, event: HotkeyEvent) -> None:
         if event == HotkeyEvent.PTT_DOWN:
+            conv = self._config.conversation
             with self._lock:
-                stop_handsfree = self._handsfree
-                if stop_handsfree:
-                    self._handsfree = False
+                # A manual press takes over from any pending reopen.
+                self._reopen_pending = False
+                double_tap = (
+                    self._handsfree
+                    and conv.enabled
+                    and not self._conversation
+                    and time.monotonic() - self._recording_started_at
+                    < conv.double_tap_ms / 1000
+                )
+                if double_tap:
+                    # Quick second tap: keep this recording going and start
+                    # a conversation, rather than stopping early.
+                    self._conversation = True
                     self._swallow_release = True
+                    stop_handsfree = False
+                else:
+                    stop_handsfree = self._handsfree
+                    if stop_handsfree:
+                        self._handsfree = False
+                        self._swallow_release = True
+            if double_tap:
+                print("[daemon] conversation started", file=sys.stderr)
+                self._play_tick("conversation")
+                return
             if stop_handsfree:
                 # Second tap: stop listening now instead of waiting for silence.
                 self._stop_endpoint()
@@ -171,21 +207,7 @@ class DaemonCore:
                 return
             if self._playback.is_playing():
                 self._playback.interrupt()
-            # If Recorder.start() throws (PortAudio internal state gone stale,
-            # mic permission revoked, device disappeared), surface it to the
-            # user immediately instead of letting pynput swallow the traceback.
-            try:
-                self._recorder.start()
-            except Exception as e:
-                print(f"[daemon] recorder start failed: {e}", file=sys.stderr)
-                self._on_state_change("error")
-                self._play_tick("busy")
-                return
-            self._recording = True
-            self._on_state_change("recording")
-            self._play_tick("start")
-            if self._preview is not None:
-                self._preview.start()
+            self._begin_recording("start")
         elif event in (HotkeyEvent.PTT_UP, HotkeyEvent.TAP_UP):
             with self._lock:
                 if self._swallow_release:
@@ -197,11 +219,35 @@ class DaemonCore:
                 return
             self._finish_recording()
 
-    def _start_handsfree(self) -> None:
+    def _begin_recording(self, tick: str) -> bool:
+        # If Recorder.start() throws (PortAudio internal state gone stale,
+        # mic permission revoked, device disappeared), surface it to the
+        # user immediately instead of letting pynput swallow the traceback.
+        try:
+            self._recorder.start()
+        except Exception as e:
+            print(f"[daemon] recorder start failed: {e}", file=sys.stderr)
+            self._on_state_change("error")
+            self._play_tick("busy")
+            return False
+        self._recording = True
+        self._recording_started_at = time.monotonic()
+        self._on_state_change("recording")
+        self._play_tick(tick)
+        if self._preview is not None:
+            self._preview.start()
+        return True
+
+    def _start_handsfree(self, no_speech_timeout_s: float | None = None) -> None:
         """Keep recording after a tap; the detector ends it on silence."""
         with self._lock:
             self._handsfree = True
-        self._endpoint = self._make_endpoint(self._on_endpoint)
+        if no_speech_timeout_s is None:
+            self._endpoint = self._make_endpoint(self._on_endpoint)
+        else:
+            self._endpoint = self._make_endpoint(
+                self._on_endpoint, no_speech_timeout_s=no_speech_timeout_s
+            )
         self._endpoint.start()
 
     def _on_endpoint(self, reason: str) -> None:
@@ -210,7 +256,44 @@ class DaemonCore:
                 return  # a second tap already ended it
             self._handsfree = False
         print(f"[daemon] hands-free recording ended: {reason}", file=sys.stderr)
+        if reason == "no_speech" and self._conversation:
+            self._end_conversation("you stayed quiet")
         self._finish_recording()
+
+    def _end_conversation(self, why: str) -> None:
+        with self._lock:
+            was_on = self._conversation
+            self._conversation = False
+            self._awaiting_reply = False
+            self._reopen_pending = False
+        if was_on:
+            print(f"[daemon] conversation ended: {why}", file=sys.stderr)
+            self._play_tick("conversation_end")
+
+    def handle_playback_idle(self) -> None:
+        """Speech finished on its own. If it was the reply in a conversation,
+        listen for the next message."""
+        with self._lock:
+            if not (self._reopen_pending and self._conversation):
+                return
+            self._reopen_pending = False
+        self._dispatch(self._reopen_mic, ())
+
+    def _reopen_mic(self) -> None:
+        # Let the speaker go quiet so the mic doesn't hear the voice's tail.
+        time.sleep(self._config.conversation.reopen_delay_ms / 1000)
+        with self._lock:
+            if not self._conversation or self._recording or self._busy:
+                return
+        if self._playback.is_playing():
+            return  # more speech arrived; a manual press can still take over
+        if self._frontmost is not None and self._conversation_app is not None:
+            front = self._frontmost()
+            if front != self._conversation_app:
+                self._end_conversation(f"{front} is in front, not {self._conversation_app}")
+                return
+        if self._begin_recording("listen"):
+            self._start_handsfree(self._config.conversation.no_speech_timeout_s)
 
     def _stop_endpoint(self) -> None:
         if self._endpoint is not None:
@@ -287,6 +370,11 @@ class DaemonCore:
                 print(f"[daemon] inject failed: {e}", file=sys.stderr)
                 self._on_state_change("error")
                 return
+            if self._conversation:
+                app = self._frontmost() if self._frontmost is not None else None
+                with self._lock:
+                    self._awaiting_reply = True
+                    self._conversation_app = app
             self._play_tick("stop")
             self._on_state_change("idle")
         finally:
@@ -301,6 +389,8 @@ class DaemonCore:
             self._on_state_change("idle")
             return
         self._play_tick("verbatim")
+        with self._lock:
+            self._reopen_pending = self._conversation
         # Explicit request, like replay: play now rather than queue.
         self._playback.interrupt()
         self._playback.speak(full_text, "more")
@@ -317,6 +407,11 @@ class DaemonCore:
             "stop": "Pop",
             "busy": "Funk",
             "verbatim": "Glass",
+            # Conversation mode: started by double-tap, mic reopened after
+            # a reply, and ended by staying quiet.
+            "conversation": "Hero",
+            "listen": "Bottle",
+            "conversation_end": "Blow",
         }.get(kind, "Tink")
         try:
             subprocess.Popen(
@@ -350,6 +445,21 @@ class DaemonCore:
         return {"ok": True}
 
     def handle_speak(self, msg: dict) -> dict:
+        if msg.get("final"):
+            # End-of-turn reply: if it answers a conversation message, the
+            # mic reopens once speech finishes (handle_playback_idle).
+            with self._lock:
+                if self._awaiting_reply and self._conversation:
+                    self._awaiting_reply = False
+                    self._reopen_pending = True
+        reply = self._speak(msg)
+        # A final reply that won't be spoken (duplicate, stale, TTS off)
+        # still hands the turn back, or the conversation would stall.
+        if msg.get("final") and reply.get("skipped") and not self._playback.is_playing():
+            self.handle_playback_idle()
+        return reply
+
+    def _speak(self, msg: dict) -> dict:
         if not self._config.tts.enabled:
             return {"ok": True, "skipped": "tts disabled"}
         text = msg.get("text", "")
@@ -462,6 +572,7 @@ class VoiceDaemon(rumps.App):
             primary_tts,
             fallback=fallback_tts,
             max_duration_seconds=float(config.tts.max_duration),
+            on_idle=lambda: self._core.handle_playback_idle(),
         )
         recorder = Recorder()
         tap = config.tap_to_talk
@@ -472,12 +583,12 @@ class VoiceDaemon(rumps.App):
         )
         make_endpoint = None
         if tap.enabled:
-            def make_endpoint(on_end):
+            def make_endpoint(on_end, no_speech_timeout_s=tap.no_speech_timeout_s):
                 return EndpointDetector(
                     recorder.snapshot,
                     on_end,
                     silence_s=tap.end_silence_ms / 1000,
-                    no_speech_timeout_s=tap.no_speech_timeout_s,
+                    no_speech_timeout_s=no_speech_timeout_s,
                     max_s=tap.max_duration_s,
                 )
 
@@ -507,6 +618,7 @@ class VoiceDaemon(rumps.App):
             on_state_change=self._on_state_change,
             preview=preview,
             make_endpoint=make_endpoint,
+            frontmost_fn=frontmost_app,
         )
         handlers["speak"] = self._core.handle_speak
         handlers["replay"] = self._core.handle_replay

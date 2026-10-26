@@ -9,6 +9,12 @@ tap_to_talk:                  # tap the PTT key instead of holding it: records u
   no_speech_timeout_s: 5      # cancel if you don't start speaking within this long
   max_duration_s: 60          # hard stop, e.g. in a noisy room
 
+conversation:                 # double-tap the PTT key: after each spoken reply the mic reopens by itself
+  enabled: true
+  double_tap_ms: 500          # a second tap within this long starts a conversation (slower = stop early)
+  no_speech_timeout_s: 8      # a reopened mic waits this long for you to talk; staying quiet ends the conversation
+  reopen_delay_ms: 500        # pause after speech ends before listening, so the mic doesn't hear the voice
+
 stt:
   provider: "whisper_cpp"     # whisper_cpp (default, offline, GPU) | whisper_local (offline, CPU) | parakeet (offline, optional extra) | deepgram (cloud, needs DEEPGRAM_API_KEY)
   whisper_local:

@@ -230,3 +230,26 @@ def test_clear_queue_drops_waiting_but_finishes_current():
     time.sleep(0.05)
     assert _spoken(provider) == ["current"]
     assert not p.is_playing()
+
+
+def test_on_idle_fires_when_queue_drains_but_not_after_interrupt():
+    import subprocess
+    import threading
+    from claude_voice.playback import PlaybackController
+    idle = threading.Event()
+    procs = []
+
+    class Sleeper:
+        def speak(self, text):
+            procs.append(subprocess.Popen(["sleep", "0.05"]))
+            return procs[-1]
+
+    pc = PlaybackController(Sleeper(), on_idle=idle.set)
+    pc.speak("one", "r1")
+    pc.speak("two", "r2")
+    assert idle.wait(2.0)
+    assert len(procs) == 2  # after the queue drained, not after "one"
+    idle.clear()
+    pc.speak("three", "r3")
+    pc.interrupt()
+    assert not idle.wait(0.3)

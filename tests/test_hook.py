@@ -491,3 +491,19 @@ def test_userpromptsubmit_no_spoken_rule_when_daemon_down(mocker, capsys):
 
 def test_userpromptsubmit_no_spoken_rule_by_default(mocker, capsys):
     assert _ups_stdout(mocker, Config(), {"ok": True}, capsys) == ""
+
+
+def test_stop_speak_is_final_pretooluse_is_not(tmp_path, mocker):
+    jsonl = tmp_path / "t.jsonl"
+    jsonl.write_text(
+        '{"type":"user","message":{"role":"user","content":"hi"}}\n'
+        '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Checking."}]}}\n'
+    )
+    send = mocker.patch("claude_voice.hook.send_message", return_value={"ok": True})
+    mocker.patch("claude_voice.hook._play_tick")
+    mocker.patch("claude_voice.hook.load_config", return_value=Config())
+    mocker.patch("claude_voice.hook.read_secrets", return_value={"ANTHROPIC_API_KEY": None})
+    _run_with_stdin({"hook_event_name": "PreToolUse", "transcript_path": str(jsonl)}, mocker)
+    _run_with_stdin(_stop_payload(jsonl), mocker)
+    speaks = [c.args[0] for c in send.call_args_list if c.args[0]["op"] == "speak"]
+    assert [m["final"] for m in speaks] == [False, True]

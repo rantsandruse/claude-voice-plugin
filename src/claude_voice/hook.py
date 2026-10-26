@@ -243,6 +243,8 @@ def main() -> int:
         "source_key": source_key,
         # The whole reply, for the "more" voice command after a summary.
         "full_text": cleaned,
+        # End of turn: in conversation mode the mic reopens after this one.
+        "final": event == "Stop",
     }
     if isinstance(generation, int):
         speak_msg["generation"] = generation

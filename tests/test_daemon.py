@@ -403,6 +403,7 @@ def test_new_turn_clears_queued_speech():
 class FakeEndpoint:
     def __init__(self, on_end):
         self.on_end = on_end
+        self.no_speech_timeout_s = None
         self.started = self.stopped = False
     def start(self): self.started = True
     def stop(self): self.stopped = True
@@ -411,8 +412,10 @@ class FakeEndpoint:
 def _mk_tap_core():
     core, recorder, _, stt, playback, _, injector = _mk_core()
     endpoints = []
-    def make(on_end):
-        endpoints.append(FakeEndpoint(on_end)); return endpoints[-1]
+    def make(on_end, no_speech_timeout_s=None):
+        endpoints.append(FakeEndpoint(on_end))
+        endpoints[-1].no_speech_timeout_s = no_speech_timeout_s
+        return endpoints[-1]
     core._make_endpoint = make
     recorder.stop.return_value = _fake_audio(2.0)
     stt.transcribe_audio.return_value = "run the tests"
@@ -430,10 +433,12 @@ def test_tap_keeps_recording_until_silence():
     injector.assert_called_once_with("run the tests")
 
 
-def test_second_tap_stops_early_and_its_release_is_ignored():
+def test_second_tap_stops_early_and_its_release_is_ignored(mocker):
+    clock = mocker.patch("claude_voice.daemon.time.monotonic", return_value=100.0)
     core, recorder, injector, endpoints = _mk_tap_core()
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)
     core.handle_hotkey(HotkeyEvent.TAP_UP)
+    clock.return_value = 102.0
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)  # second tap
     assert endpoints[0].stopped
     recorder.stop.assert_called_once()
@@ -443,10 +448,12 @@ def test_second_tap_stops_early_and_its_release_is_ignored():
     assert recorder.start.call_count == 1
 
 
-def test_detector_firing_after_second_tap_is_ignored():
+def test_detector_firing_after_second_tap_is_ignored(mocker):
+    clock = mocker.patch("claude_voice.daemon.time.monotonic", return_value=100.0)
     core, recorder, injector, endpoints = _mk_tap_core()
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)
     core.handle_hotkey(HotkeyEvent.TAP_UP)
+    clock.return_value = 102.0
     core.handle_hotkey(HotkeyEvent.PTT_DOWN)
     endpoints[0].on_end("silence")  # lost the race; must be a no-op
     recorder.stop.assert_called_once()
@@ -511,3 +518,166 @@ def test_sentence_containing_more_still_pastes():
     core.handle_hotkey(HotkeyEvent.PTT_UP)
 
     injector.assert_called_once_with("add more tests")
+
+
+# --- Conversation mode -------------------------------------------------
+
+def _mk_conversation_core(mocker, front="com.apple.Terminal"):
+    """A tap-to-talk core with no reopen delay, a fixed clock and a fixed
+    frontmost app. Returns the core plus the knobs tests poke."""
+    from dataclasses import replace
+    clock = mocker.patch("claude_voice.daemon.time.monotonic", return_value=100.0)
+    mocker.patch("claude_voice.daemon.time.sleep")
+    core, recorder, injector, endpoints = _mk_tap_core()
+    core._config = replace(core._config, conversation=replace(core._config.conversation, reopen_delay_ms=0))
+    apps = {"front": front}
+    core._frontmost = lambda: apps["front"]
+    core._playback.is_playing.return_value = False
+    return core, recorder, injector, endpoints, clock, apps
+
+
+def _double_tap(core, clock):
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    clock.return_value += 0.2
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+
+
+def _final(text="Done. Anything else?"):
+    return {"op": "speak", "text": text, "response_id": "r", "final": True}
+
+
+def _send_message(core, endpoints):
+    """Finish the current hands-free recording: transcribe and paste."""
+    endpoints[-1].on_end("silence")
+
+
+def test_double_tap_starts_conversation_and_keeps_recording(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    assert core._conversation
+    recorder.stop.assert_not_called()  # the second tap didn't stop it
+    assert recorder.start.call_count == 1
+    assert len(endpoints) == 1
+
+
+def test_slow_second_tap_still_stops_early(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    clock.return_value += 2.0
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    assert not core._conversation
+    recorder.stop.assert_called_once()
+
+
+def test_mic_reopens_after_final_reply_is_spoken(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    injector.assert_called_once()
+    core.handle_speak(_final())
+    assert recorder.start.call_count == 1  # still speaking
+    core.handle_playback_idle()  # speech finished
+    assert recorder.start.call_count == 2
+    assert endpoints[-1].started
+    assert endpoints[-1].no_speech_timeout_s == core._config.conversation.no_speech_timeout_s
+
+
+def test_conversation_keeps_going_across_turns(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    for turn in range(3):
+        _send_message(core, endpoints)
+        core.handle_speak(_final(f"reply {turn}"))
+        core.handle_playback_idle()
+    assert recorder.start.call_count == 4
+    assert injector.call_count == 3
+
+
+def test_mid_turn_speech_does_not_reopen(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    core.handle_speak({"op": "speak", "text": "Reading the file.", "response_id": "r1"})
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 1
+
+
+def test_reply_to_prompt_not_spoken_on_mac_does_not_reopen(mocker):
+    """E.g. a prompt typed, or sent from the phone, while the conversation
+    is waiting with the mic closed."""
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    core.handle_speak(_final("first"))
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 2
+    # The reopened recording is cut off by a key press (push-to-talk) that
+    # sends nothing, so no conversation message is outstanding...
+    recorder.stop.return_value = None
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    # ...and a reply arrives anyway.
+    core._recording = False
+    core.handle_speak(_final("from the phone"))
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 2
+
+
+def test_staying_quiet_ends_conversation(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    core.handle_speak(_final())
+    core.handle_playback_idle()
+    recorder.stop.return_value = None  # nothing was said
+    endpoints[-1].on_end("no_speech")
+    assert not core._conversation
+    core.handle_speak(_final())
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 2
+
+
+def test_other_app_in_front_ends_conversation_instead_of_listening(mocker):
+    core, recorder, injector, endpoints, clock, apps = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    apps["front"] = "com.tinyspeck.slackmacgap"
+    core.handle_speak(_final())
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 1
+    assert not core._conversation
+
+
+def test_duplicate_final_still_reopens(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    core._spoken_source_keys.append("k")
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    reply = core.handle_speak({**_final(), "source_key": "k"})
+    assert reply.get("skipped") == "duplicate"
+    assert recorder.start.call_count == 2
+
+
+def test_manual_press_cancels_pending_reopen(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    _double_tap(core, clock)
+    _send_message(core, endpoints)
+    core.handle_speak(_final())
+    clock.return_value += 5
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)  # barge in during the reply
+    assert recorder.start.call_count == 2
+    core.handle_playback_idle()  # interrupted speech: no extra reopen
+    assert recorder.start.call_count == 2
+
+
+def test_single_tap_is_unchanged_with_conversation_enabled(mocker):
+    core, recorder, injector, endpoints, clock, _ = _mk_conversation_core(mocker)
+    core.handle_hotkey(HotkeyEvent.PTT_DOWN)
+    core.handle_hotkey(HotkeyEvent.TAP_UP)
+    _send_message(core, endpoints)
+    core.handle_speak(_final())
+    core.handle_playback_idle()
+    assert recorder.start.call_count == 1
+    assert not core._conversation

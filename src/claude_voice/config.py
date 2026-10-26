@@ -50,6 +50,24 @@ class TapToTalkConfig:
 
 
 @dataclass(frozen=True)
+class ConversationConfig:
+    # Double-tap the PTT key to start a conversation: each message is sent on
+    # silence (as with tap-to-talk), and after Claude's final spoken reply
+    # the mic reopens by itself. Staying quiet ends the conversation. Needs
+    # tap_to_talk.enabled.
+    enabled: bool = True
+    # A second tap this soon after the first starts a conversation instead
+    # of stopping the recording early.
+    double_tap_ms: int = 500
+    # How long a reopened mic waits for you to start talking. Longer than
+    # tap-to-talk's, so you have time to think about the reply.
+    no_speech_timeout_s: float = 8.0
+    # Wait after speech ends before reopening, so the mic doesn't catch the
+    # tail of the voice.
+    reopen_delay_ms: int = 500
+
+
+@dataclass(frozen=True)
 class WhisperLocalConfig:
     model: str = "small"
     device: str = "auto"
@@ -148,6 +166,7 @@ class LoggingConfig:
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     tap_to_talk: TapToTalkConfig = field(default_factory=TapToTalkConfig)
+    conversation: ConversationConfig = field(default_factory=ConversationConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)

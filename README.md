@@ -4,6 +4,7 @@ A macOS voice plugin for Claude Code — talk to Claude, hear it back.
 
 - **Push-to-talk STT** — hold a hotkey, speak, release. The transcript pastes into your focused terminal.
 - **Tap-to-talk** — or tap the hotkey once and just speak; recording stops on its own when you go quiet.
+- **Conversation mode** — double-tap to talk back and forth: after each spoken reply the mic reopens by itself.
 - **Spoken responses** — Claude's answer is read aloud when the turn ends. Configurable summary or verbatim.
 - **Ambient audio feedback** — ticks and interim narration through Claude Code's `UserPromptSubmit` / `PreToolUse` / `Stop` hooks so you can follow along without looking at the screen.
 
@@ -28,6 +29,7 @@ The installer creates `~/.config/claude-voice/` and registers three hooks in `~/
 
 1. Hold **Right Option**, speak, release. The transcript pastes and auto-submits.
    Or tap it once, speak, and pause: it stops after ~2 s of silence (tap again to stop sooner).
+   Or double-tap it to start a conversation (see [Conversation mode](#conversation-mode)).
 2. Wait for Claude's answer — you'll hear a Ping when it starts thinking, a Purr for each tool it runs, and a spoken summary when it's done.
 
 **One-time permissions.** macOS will prompt for **Microphone** access on your first PTT press. Grant **Accessibility** to Terminal (or iTerm) *and* your Python interpreter before the first PTT — full details in [Grant macOS Permissions](#grant-macos-permissions-required) below.
@@ -76,6 +78,18 @@ ANTHROPIC_API_KEY=...    # needed for summary mode (default). Skip only if you s
 Push-to-talk basics are in the [Quick Start](#quick-start). What follows are the voice-controlled and ambient behaviors that build on it.
 
 **Interrupt playing TTS:** press the PTT hotkey while Claude is speaking. Playback stops and recording starts immediately. (For a force-kill from the terminal when PTT itself isn't reaching the daemon, see `claude-voice interrupt` in the [CLI](#cli) section.)
+
+### Conversation mode
+
+Double-tap the hotkey (two taps within half a second) and start talking. You'll hear Hero. Each message is sent when you stop talking, and after Claude's reply has been read aloud, the mic opens again by itself (Bottle) so you can answer without touching anything. Stay quiet for 8 seconds and the conversation ends (Blow); tap once to pick up again.
+
+- The mic only reopens after Claude's **final** reply, not after text it speaks while working.
+- It only reopens for messages you spoke in the conversation. Replies to prompts you typed, or sent from your phone with Remote Control, don't open the Mac's mic.
+- It only reopens if the app you were talking to is still in front, so your words can't paste into another window.
+- Pressing the hotkey while Claude is talking interrupts, as usual. The conversation carries on after your message.
+- Holding the key (push-to-talk) and a single tap (tap-to-talk) work as before.
+
+Settings live under `conversation:` in `config.yaml` (window for the double-tap, how long to wait for you, `enabled: false` to turn it off).
 
 ### Voice commands
 
