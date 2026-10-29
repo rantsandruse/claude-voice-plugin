@@ -7,12 +7,12 @@ tap_to_talk:                  # tap the PTT key instead of holding it: records u
   max_tap_ms: 300             # releases faster than this count as a tap; longer holds are push-to-talk
   end_silence_ms: 2000        # stop after this much silence; raise it if it cuts you off mid-thought
   no_speech_timeout_s: 5      # cancel if you don't start speaking within this long
-  max_duration_s: 60          # hard stop, e.g. in a noisy room
+  max_duration_s: 60          # hard stop this long after you start talking, e.g. in a noisy room
 
 conversation:                 # double-tap the PTT key: after each spoken reply the mic reopens by itself
   enabled: true
   double_tap_ms: 500          # a second tap within this long starts a conversation (slower = stop early)
-  no_speech_timeout_s: 8      # a reopened mic waits this long for you to talk; staying quiet ends the conversation
+  no_speech_timeout_s: 300    # a reopened mic waits this long (5 min) for you to talk; staying quiet ends the conversation
   reopen_delay_ms: 500        # pause after speech ends before listening, so the mic doesn't hear the voice
 
 stt:

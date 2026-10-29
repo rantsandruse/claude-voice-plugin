@@ -81,7 +81,7 @@ Push-to-talk basics are in the [Quick Start](#quick-start). What follows are the
 
 ### Conversation mode
 
-Double-tap the hotkey (two taps within half a second) and start talking. You'll hear Hero. Each message is sent when you stop talking, and after Claude's reply has been read aloud, the mic opens again by itself (Bottle) so you can answer without touching anything. Stay quiet for 8 seconds and the conversation ends (Blow); tap once to pick up again.
+Double-tap the hotkey (two taps within half a second) and start talking. You'll hear Hero. Each message is sent when you stop talking, and after Claude's reply has been read aloud, the mic opens again by itself (Bottle) so you can answer without touching anything. Stay quiet for 5 minutes and the conversation ends (`conversation.no_speech_timeout_s`) (Blow); tap once to pick up again.
 
 - The mic only reopens after Claude's **final** reply, not after text it speaks while working.
 - It only reopens for messages you spoke in the conversation. Replies to prompts you typed, or sent from your phone with Remote Control, don't open the Mac's mic.

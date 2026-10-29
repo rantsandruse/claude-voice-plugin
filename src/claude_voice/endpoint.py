@@ -28,7 +28,8 @@ class EndpointDetector:
 
     - "silence":   speech happened and has been followed by silence_s of quiet
     - "no_speech": nothing was said within no_speech_timeout_s
-    - "max":       the recording reached max_s
+    - "max":       speech has gone on for max_s (timed from when it began,
+                   so a long wait for speech doesn't eat into it)
 
     Only the last silence_s + 1 s is checked on each tick, so the cost stays
     flat however long the dictation runs.
@@ -73,6 +74,7 @@ class EndpointDetector:
 
     def _watch(self, stop: threading.Event) -> str | None:
         window_samples = int((self._silence_s + 1.0) * SAMPLE_RATE)
+        first_speech_start: float | None = None
         last_speech_end: float | None = None
         started = time.monotonic()
         while not stop.wait(self._interval):
@@ -84,12 +86,14 @@ class EndpointDetector:
                     return "no_speech"
                 continue
             now = len(audio) / SAMPLE_RATE
-            if now >= self._max_s:
+            if first_speech_start is not None and now - first_speech_start >= self._max_s:
                 return "max"
             window = audio[-window_samples:]
             offset = now - len(window) / SAMPLE_RATE
             regions = self._speech(window)
             if regions:
+                if first_speech_start is None:
+                    first_speech_start = offset + regions[0][0]
                 last_speech_end = offset + regions[-1][1]
             if last_speech_end is None:
                 if now >= self._no_speech_timeout_s:

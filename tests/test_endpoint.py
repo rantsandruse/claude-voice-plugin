@@ -73,6 +73,12 @@ def test_max_duration_caps_endless_speech():
     assert reason == "max" and 3.0 <= at <= 3.2
 
 
+def test_max_duration_counts_from_first_speech():
+    # A long wait before talking doesn't count toward the cap.
+    [(reason, at)] = _run(Clock(lambda t: t >= 4.0), no_speech_timeout_s=10.0, max_s=3.0)
+    assert reason == "max" and 7.0 <= at <= 7.3
+
+
 def test_stop_prevents_callback():
     ended = []
     det = EndpointDetector(lambda: None, ended.append, interval=0.01, speech=lambda a: [])
