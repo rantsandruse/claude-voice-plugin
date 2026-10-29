@@ -61,7 +61,10 @@ SUMMARY_PROMPT = (
 # Added to Claude's context on each prompt while the daemon is running and
 # tts.spoken_section is on.
 SPOKEN_SECTION_RULE = (
-    "Voice mode is on. End your reply with a final line starting \"Spoken:\" "
+    "Voice mode is on. If you will use tools before answering, first write "
+    "one short plain sentence saying what you're about to do; it is read "
+    "aloud at the first tool call so the listener isn't left in silence. "
+    "End your reply with a final line starting \"Spoken:\" "
     "that says the reply for someone listening, not reading: no code, symbols "
     "or file paths. Keep every option, question and decision, one short "
     "sentence each."
