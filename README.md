@@ -81,9 +81,10 @@ Push-to-talk basics are in the [Quick Start](#quick-start). What follows are the
 
 ### Conversation mode
 
-Double-tap the hotkey (two taps within half a second) and start talking. You'll hear Hero. Each message is sent when you stop talking, and after Claude's reply has been read aloud, the mic opens again by itself (Bottle) so you can answer without touching anything. Stay quiet for 5 minutes and the conversation ends (`conversation.no_speech_timeout_s`) (Blow); tap once to pick up again.
+Double-tap the hotkey (two taps within half a second) and start talking. You'll hear Hero. Each message is sent when you stop talking, and after Claude's reply has been read aloud, the mic opens again by itself (Bottle) so you can answer without touching anything. Stay quiet for 5 minutes and the conversation ends (Blow); tap once to pick up again.
 
 - The mic only reopens after Claude's **final** reply, not after text it speaks while working.
+- While the mic is open it sends whatever it hears, including a TV or someone else talking. Shorten the wait with `conversation.no_speech_timeout_s` if that's a problem.
 - It only reopens for messages you spoke in the conversation. Replies to prompts you typed, or sent from your phone with Remote Control, don't open the Mac's mic.
 - It only reopens if the app you were talking to is still in front, so your words can't paste into another window.
 - Pressing the hotkey while Claude is talking interrupts, as usual. The conversation carries on after your message.
@@ -104,7 +105,7 @@ Some utterances are intercepted as commands instead of pasted as prompt text. A 
 
 In summary mode, Haiku rewrites each long response for listening. Options, fixes, steps, questions and decisions are kept and read one by one ("First, … Second, …"); explanations are condensed. Say `more` to hear the full response.
 
-**Let Claude write the spoken version (optional).** Set `tts.spoken_section: true` and, while the daemon is running, each prompt asks Claude to end its reply with a `Spoken:` line. That line is read as written, with no Haiku call, so speech starts sooner. When the daemon is stopped, the request isn't added and replies stay as usual. The line shows on screen too, which is why it's off by default. Replies without it fall back to Haiku.
+**Let Claude write the spoken version (optional).** Set `tts.spoken_section: true` and, while the daemon is running, each prompt asks Claude to end its reply with a `Spoken:` line. That line is read as written, with no Haiku call, so speech starts sooner. Claude is also asked to open with one short sentence when it will use tools first; that's read aloud at the first tool call, so you hear something within seconds instead of waiting for the final reply. When the daemon is stopped, the request isn't added and replies stay as usual. The line shows on screen too, which is why it's off by default. Replies without it fall back to Haiku.
 
 ### Feedback signals
 
@@ -123,6 +124,9 @@ In summary mode, Haiku rewrites each long response for listening. Options, fixes
 | **Ping** | Claude Code received your prompt (`UserPromptSubmit` hook) |
 | **Purr** | Claude is invoking a tool (`PreToolUse` hook) — heartbeat during work |
 | **Glass** | Voice command acknowledged (`"verbatim"`, `"more"`) |
+| **Hero** | Conversation started (double-tap) |
+| **Bottle** | Conversation: mic reopened after Claude's reply |
+| **Blow** | Conversation ended (you stayed quiet or switched apps) |
 
 </details>
 
