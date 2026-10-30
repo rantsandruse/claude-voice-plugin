@@ -100,6 +100,7 @@ Some utterances are intercepted as commands instead of pasted as prompt text. A 
 |---|---|
 | `verbatim` | One-shot: the very next response is spoken in full, skipping the default Haiku summary. After that response, summary mode resumes automatically. |
 | `more` or `tell me more` | Speaks the last response in full, right away. Use it after a summary when you want the details. |
+| `repeat`, `again`, `say that again`, `previously` or `before` | Speaks the last response again, the way it was spoken (summary or `Spoken:` line). Nothing is sent to Claude, so it costs no tokens. Use it if you missed the reply. |
 
 ### Summaries
 
@@ -123,7 +124,7 @@ In summary mode, Haiku rewrites each long response for listening. Options, fixes
 | **Funk** | Busy or error — the daemon couldn't complete what you asked (mic denied, PortAudio wedged, etc.) |
 | **Ping** | Claude Code received your prompt (`UserPromptSubmit` hook) |
 | **Purr** | Claude is invoking a tool (`PreToolUse` hook) — heartbeat during work |
-| **Glass** | Voice command acknowledged (`"verbatim"`, `"more"`) |
+| **Glass** | Voice command acknowledged (`"verbatim"`, `"more"`, `"repeat"`) |
 | **Hero** | Conversation started (double-tap) |
 | **Bottle** | Conversation: mic reopened after Claude's reply |
 | **Blow** | Conversation ended (you stayed quiet or switched apps) |

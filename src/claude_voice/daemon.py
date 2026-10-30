@@ -68,6 +68,13 @@ def _is_more_command(text: str) -> bool:
     return token in ("more", "tell me more")
 
 
+def _is_repeat_command(text: str) -> bool:
+    """A short phrase as the whole utterance: say the last reply again, as
+    it was spoken, without asking Claude."""
+    token = " ".join(text.strip().lower().rstrip(".,!?").split())
+    return token in ("repeat", "again", "say that again", "previously", "before")
+
+
 def _set_verbatim_flag() -> None:
     """Touch the one-shot flag file the Stop hook reads."""
     try:
@@ -146,6 +153,8 @@ class DaemonCore:
         self._spoken_source_keys: list[str] = []
         # Unsummarized text of the last reply spoken, for the "more" command.
         self._last_full_text: str | None = None
+        # The last reply as it was spoken, for the "repeat" command.
+        self._last_text: str | None = None
         # Conversation mode (double-tap): after Claude's final spoken reply,
         # the mic reopens by itself until a reopened mic hears nothing.
         self._conversation = False
@@ -356,7 +365,14 @@ class DaemonCore:
                 self._on_state_change("idle")
                 return
             if _is_more_command(text):
-                self._speak_more()
+                with self._lock:
+                    full_text = self._last_full_text
+                self._speak_again(full_text, "more")
+                return
+            if _is_repeat_command(text):
+                with self._lock:
+                    last_text = self._last_text
+                self._speak_again(last_text, "repeat")
                 return
             # This is the "committed new turn" moment: transcription succeeded,
             # text is non-empty, and it's not a hands-free command. Bump gen
@@ -381,10 +397,9 @@ class DaemonCore:
             with self._lock:
                 self._busy = False
 
-    def _speak_more(self) -> None:
-        with self._lock:
-            full_text = self._last_full_text
-        if not full_text:
+    def _speak_again(self, text: str | None, response_id: str) -> None:
+        """Speak a stored reply for a voice command; nothing goes to Claude."""
+        if not text:
             self._play_tick("busy")
             self._on_state_change("idle")
             return
@@ -393,7 +408,7 @@ class DaemonCore:
             self._reopen_pending = self._conversation
         # Explicit request, like replay: play now rather than queue.
         self._playback.interrupt()
-        self._playback.speak(full_text, "more")
+        self._playback.speak(text, response_id)
         self._on_state_change("playing")
 
     def _play_tick(self, kind: str) -> None:
@@ -510,6 +525,7 @@ class DaemonCore:
             self._last_spoken_response_id = response_id
             self._last_spoken_text_key = text_key
             self._last_full_text = msg.get("full_text") or text
+            self._last_text = text
         self._playback.speak(text, response_id)
         self._on_state_change("playing")
         return {"ok": True}

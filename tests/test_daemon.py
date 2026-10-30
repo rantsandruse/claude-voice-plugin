@@ -510,6 +510,41 @@ def test_more_command_with_nothing_spoken_yet_does_not_inject():
     playback.speak.assert_not_called()
 
 
+def test_repeat_command_speaks_last_spoken_text_and_skips_inject():
+    core, recorder, _, stt, playback, _, injector = _mk_core()
+    core.handle_speak({"op": "speak", "text": "summary", "response_id": "r1",
+                       "full_text": "the whole reply"})
+    playback.reset_mock()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "Say that again."
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    playback.speak.assert_called_once_with("summary", "repeat")
+
+
+def test_repeat_command_with_nothing_spoken_yet_does_not_inject():
+    core, recorder, _, stt, playback, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "previously"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_not_called()
+    playback.speak.assert_not_called()
+
+
+def test_sentence_containing_again_still_pastes():
+    core, recorder, _, stt, _, _, injector = _mk_core()
+    recorder.stop.return_value = _fake_audio()
+    stt.transcribe_audio.return_value = "run the tests again"
+
+    core.handle_hotkey(HotkeyEvent.PTT_UP)
+
+    injector.assert_called_once_with("run the tests again")
+
+
 def test_sentence_containing_more_still_pastes():
     core, recorder, _, stt, _, _, injector = _mk_core()
     recorder.stop.return_value = _fake_audio()
