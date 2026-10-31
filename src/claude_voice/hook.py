@@ -21,6 +21,10 @@ HOOK_LOG_PATH = CONFIG_DIR / "hook.log"
 TICK_USERPROMPTSUBMIT = "Ping"
 TICK_PRETOOLUSE = "Purr"
 
+# Cap on Haiku's summary. 500 cut long summaries off mid-sentence after
+# about two and a half minutes of speech; 1500 allows roughly seven.
+SUMMARY_MAX_TOKENS = 1500
+
 
 def _play_tick(sound_name: str) -> None:
     """Fire-and-forget system sound. Best-effort — failure is silent because
@@ -103,9 +107,11 @@ def summarize(text: str, api_key: str) -> str:
         client = Anthropic(api_key=api_key)
         resp = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=500,
+            max_tokens=SUMMARY_MAX_TOKENS,
             messages=[{"role": "user", "content": SUMMARY_PROMPT + text}],
         )
+        if resp.stop_reason == "max_tokens":
+            _log(f"summary truncated at max_tokens={SUMMARY_MAX_TOKENS}")
         block = resp.content[0]
         return getattr(block, "text", text) or text
     except Exception as e:

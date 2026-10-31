@@ -507,3 +507,19 @@ def test_stop_speak_is_final_pretooluse_is_not(tmp_path, mocker):
     _run_with_stdin(_stop_payload(jsonl), mocker)
     speaks = [c.args[0] for c in send.call_args_list if c.args[0]["op"] == "speak"]
     assert [m["final"] for m in speaks] == [False, True]
+
+
+def test_summarize_logs_truncated_summary(tmp_path, mocker):
+    from claude_voice.hook import SUMMARY_MAX_TOKENS, summarize
+
+    log_path = tmp_path / "hook.log"
+    mocker.patch("claude_voice.hook.HOOK_LOG_PATH", log_path)
+    client = MagicMock()
+    client.messages.create.return_value = MagicMock(
+        stop_reason="max_tokens", content=[MagicMock(text="cut off mid")]
+    )
+    mocker.patch("anthropic.Anthropic", return_value=client)
+
+    assert summarize("long reply", "sk-test") == "cut off mid"
+    assert client.messages.create.call_args.kwargs["max_tokens"] == SUMMARY_MAX_TOKENS
+    assert "summary truncated" in log_path.read_text()
