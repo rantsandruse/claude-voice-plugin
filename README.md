@@ -4,8 +4,9 @@ A macOS voice plugin for Claude Code — talk to Claude, hear it back.
 
 - **Push-to-talk STT** — hold a hotkey, speak, release. The transcript pastes into your focused terminal.
 - **Tap-to-talk** — or tap the hotkey once and just speak; recording stops on its own when you go quiet.
-- **Conversation mode** — double-tap to talk back and forth: after each spoken reply the mic reopens by itself.
+- **Conversation mode** — double-tap to talk back and forth: after each spoken reply the mic reopens by itself and waits up to 5 minutes (configurable) for you to answer.
 - **Spoken responses** — Claude's answer is read aloud when the turn ends. Configurable summary or verbatim.
+- **Voice commands** — say `repeat` to hear the last reply again (no Claude tokens), `more` for the full text, or `verbatim` to skip the next summary.
 - **Ambient audio feedback** — ticks and interim narration through Claude Code's `UserPromptSubmit` / `PreToolUse` / `Stop` hooks so you can follow along without looking at the screen.
 
 Runs as a lightweight menu-bar app. Works with an unmodified `claude` CLI (no wrapper, no fork).
@@ -63,6 +64,7 @@ Keys you'll actually touch:
 - `hotkey.ptt` — default `alt_r` (Right Option). Also: `alt_l`, `cmd_r`, `f1..f12`.
 - `tap_to_talk` — on by default. A press shorter than `max_tap_ms` (300) starts hands-free recording that ends after `end_silence_ms` (2000) of silence. Raise `end_silence_ms` if it cuts you off mid-thought; set `enabled: false` for push-to-talk only.
 - `stt.provider` — `whisper_cpp` (default, offline, GPU), `whisper_local` (offline, CPU; also the automatic fallback), `parakeet` (offline, `pip install -e '.[parakeet]'`), or `deepgram` (cloud). Compare them on your own voice with `scripts/bench_stt.py`.
+- `conversation.no_speech_timeout_s` — how long the reopened mic waits for you to start talking before the conversation ends. Default `300` (5 minutes); lower it if background noise gets sent, raise it for longer pauses.
 - `tts.provider` — `say` (default, offline, macOS built-in) or `elevenlabs` (cloud).
 - `tts.mode` — `summary` (default, Haiku condenses) or `prose` (verbatim).
 
